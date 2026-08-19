@@ -1,0 +1,190 @@
+// Package config loads and validates .docsweb.yaml scope/audience
+// configuration files. See README.md's "Scopes" section for the file
+// format this implements.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/tfaller/docsweb/internal/model"
+	"gopkg.in/yaml.v3"
+)
+
+// Audience is one entry from a config's `audience:` map: a declared
+// audience name, and the other audiences (if any) it's an umbrella over.
+type Audience struct {
+	Name    model.Audience
+	Combine []model.Audience
+}
+
+// Scope is one entry from a config's `scope:` map. The map key itself is
+// the scope's full name (dot-joined for nested names, e.g. "parent.child")
+// - see PLAN.md assumption #2. An entry with Git set is a remote scope;
+// the POC parses these but does not build them (that's for a later
+// validation step to reject).
+type Scope struct {
+	// Name is the scope's full dot-joined name, exactly as written as the
+	// scope map's key.
+	Name string
+	// Path is relative: to the config file's directory for a local scope,
+	// or to the repository root for a remote scope.
+	Path string
+	// Git is the remote repository URL. Empty for a local scope.
+	Git string
+	// Ref is the git branch/ref to use. Only meaningful when Git != "".
+	Ref string
+	// AudienceMap maps this scope's own local audience names to this
+	// config's audience names, for audiences that don't auto-map by
+	// identical name (see Config.ResolveScopeAudience).
+	AudienceMap map[model.Audience]model.Audience
+}
+
+// Remote reports whether s is a remote (git-based) scope.
+func (s Scope) Remote() bool { return s.Git != "" }
+
+// Config is one parsed and validated .docsweb.yaml.
+type Config struct {
+	Audiences map[model.Audience]Audience
+	Scopes    map[string]Scope
+}
+
+// rawConfig mirrors the yaml file shape directly; Parse turns it into the
+// validated Config type above.
+type rawConfig struct {
+	Audience map[string]rawAudience `yaml:"audience"`
+	Scope    map[string]rawScope    `yaml:"scope"`
+}
+
+type rawAudience struct {
+	Combine []string `yaml:"combine"`
+}
+
+type rawScope struct {
+	Path        string            `yaml:"path"`
+	Git         string            `yaml:"git"`
+	Ref         string            `yaml:"ref"`
+	AudienceMap map[string]string `yaml:"audienceMap"`
+}
+
+// Load reads and parses the .docsweb.yaml file at path.
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	cfg, err := Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// Parse parses and validates a .docsweb.yaml file's raw content.
+//
+// Duplicate audience or scope names are caught for free by yaml.v3, which
+// errors on a mapping with a repeated key rather than silently keeping the
+// last one.
+func Parse(data []byte) (*Config, error) {
+	var raw rawConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("invalid yaml: %w", err)
+	}
+
+	audiences := make(map[model.Audience]Audience, len(raw.Audience))
+	for name, ra := range raw.Audience {
+		if !model.ValidName(name) {
+			return nil, fmt.Errorf("invalid audience name %q: must be alphanumeric", name)
+		}
+		combine := make([]model.Audience, 0, len(ra.Combine))
+		for _, c := range ra.Combine {
+			combine = append(combine, model.Audience(c))
+		}
+		audiences[model.Audience(name)] = Audience{Name: model.Audience(name), Combine: combine}
+	}
+	for _, a := range audiences {
+		for _, c := range a.Combine {
+			if _, ok := audiences[c]; !ok {
+				return nil, fmt.Errorf("audience %q combines unknown audience %q", a.Name, c)
+			}
+		}
+	}
+
+	scopes := make(map[string]Scope, len(raw.Scope))
+	for name, rs := range raw.Scope {
+		for _, seg := range strings.Split(name, ".") {
+			if !model.ValidName(seg) {
+				return nil, fmt.Errorf("invalid scope name %q: %q is not a valid alphanumeric name", name, seg)
+			}
+		}
+		if rs.Path == "" && rs.Git == "" {
+			return nil, fmt.Errorf("scope %q must specify path or git", name)
+		}
+
+		audienceMap := make(map[model.Audience]model.Audience, len(rs.AudienceMap))
+		for child, parent := range rs.AudienceMap {
+			if !model.ValidName(child) {
+				return nil, fmt.Errorf("scope %q: invalid audienceMap key %q: must be alphanumeric", name, child)
+			}
+			if !model.ValidName(parent) {
+				return nil, fmt.Errorf("scope %q: invalid audienceMap value %q: must be alphanumeric", name, parent)
+			}
+			pa := model.Audience(parent)
+			if _, ok := audiences[pa]; !ok {
+				return nil, fmt.Errorf("scope %q: audienceMap %q maps to unknown audience %q", name, child, parent)
+			}
+			audienceMap[model.Audience(child)] = pa
+		}
+
+		scopes[name] = Scope{
+			Name:        name,
+			Path:        rs.Path,
+			Git:         rs.Git,
+			Ref:         rs.Ref,
+			AudienceMap: audienceMap,
+		}
+	}
+
+	return &Config{Audiences: audiences, Scopes: scopes}, nil
+}
+
+// AudienceIncludes reports whether member is group itself, or is
+// transitively reachable from group via one or more `combine` lists (e.g.
+// with `it: {combine: [dev, tester]}`, AudienceIncludes("it", "dev") is
+// true). Unknown audience names never include anything. Cycles in
+// `combine` (direct or indirect) are tolerated and simply don't add any
+// further membership.
+func (c *Config) AudienceIncludes(group, member model.Audience) bool {
+	return c.includes(group, member, make(map[model.Audience]bool))
+}
+
+func (c *Config) includes(group, member model.Audience, seen map[model.Audience]bool) bool {
+	if group == member {
+		return true
+	}
+	if seen[group] {
+		return false
+	}
+	seen[group] = true
+	for _, sub := range c.Audiences[group].Combine {
+		if c.includes(sub, member, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveScopeAudience maps a scope-local audience name (as used by
+// @audience annotations under the named sub-scope) to the audience name
+// declared in this config. Per README.md's "Scopes" section: audiences
+// with the same name auto-map to themselves; any other name must be
+// listed as an audienceMap key on that scope. It reports false if neither
+// applies.
+func (c *Config) ResolveScopeAudience(scopeName string, child model.Audience) (model.Audience, bool) {
+	if _, ok := c.Audiences[child]; ok {
+		return child, true
+	}
+	parent, ok := c.Scopes[scopeName].AudienceMap[child]
+	return parent, ok
+}

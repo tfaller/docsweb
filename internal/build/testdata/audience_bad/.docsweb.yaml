@@ -1,0 +1,5 @@
+audience:
+    dev:
+scope:
+    sub:
+        path: sub

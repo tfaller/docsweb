@@ -1,0 +1,19 @@
+audience:
+    user:
+    tester:
+    dev:
+    it:
+        combine:
+            - dev
+            - tester
+scope:
+    pathBased:
+        path: relative/path/to/scope/root
+    remoteBased:
+        git: repoUrl
+        path: path/inside/the/repo
+        ref: branch
+    "parent.child":
+        path: some/path
+        audienceMap:
+            devs: dev

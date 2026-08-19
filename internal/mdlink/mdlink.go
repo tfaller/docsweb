@@ -1,0 +1,191 @@
+// Package mdlink implements the @anchor:/@link: preprocessing step described
+// in README.md's "Linking between documentations" section, plus a thin
+// goldmark rendering wrapper. It operates purely on text: a markdown link
+// [label](@anchor:name) or [label](@link:scope.target@vX.X.X#anchor) is
+// rewritten into something goldmark understands, before the surrounding
+// text is ever handed to the Markdown renderer.
+package mdlink
+
+import (
+	"bytes"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/renderer/html"
+
+	"github.com/tfaller/docsweb/internal/model"
+)
+
+// linkRe matches a markdown link whose destination is an @anchor: or @link:
+// pseudo-URL. Destinations are never expected to contain a literal ")", so a
+// simple non-greedy-free character class is enough for the POC.
+var linkRe = regexp.MustCompile(`\[([^\]]*)\]\((@anchor:[^)]*|@link:[^)]*)\)`)
+
+// Resolver resolves @link: destinations against the full set of targets
+// known to the build. It is supplied by the caller (internal/build /
+// internal/site), since mdlink itself knows nothing about site URL layout.
+type Resolver interface {
+	// ResolveTarget reports the page URL for ref, or ok=false if no such
+	// target exists.
+	ResolveTarget(ref model.TargetRef) (url string, ok bool)
+	// HasAnchor reports whether ref's target declared an @anchor: with the
+	// given name (see CollectAnchors).
+	HasAnchor(ref model.TargetRef, anchor string) bool
+}
+
+// forEachNonFencedLine rewrites markdown line by line, skipping lines inside
+// fenced (```) code blocks, so @anchor:/@link: syntax can be shown as a
+// literal example inside documentation without being rewritten.
+func forEachNonFencedLine(markdown string, fn func(line string) (string, error)) (string, error) {
+	lines := strings.Split(markdown, "\n")
+	inFence := false
+	for i, l := range lines {
+		trimmed := strings.TrimLeft(l, " \t")
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		nl, err := fn(l)
+		if err != nil {
+			return "", err
+		}
+		lines[i] = nl
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// CollectAnchors scans markdown for [label](@anchor:name) declarations and
+// returns the declared names, in source order. Each name is validated
+// against model.ValidName, and repeats within markdown itself are rejected.
+//
+// A target's anchors must be unique across all of its pieces (@summary,
+// @doc, @changelog entries) combined, per README.md - since mdlink only ever
+// sees one piece of text at a time, the caller is responsible for checking
+// uniqueness across the results of multiple CollectAnchors calls belonging
+// to the same target.
+func CollectAnchors(markdown string) ([]string, error) {
+	seen := map[string]bool{}
+	var names []string
+	_, err := forEachNonFencedLine(markdown, func(line string) (string, error) {
+		for _, m := range linkRe.FindAllStringSubmatch(line, -1) {
+			name, ok := strings.CutPrefix(m[2], "@anchor:")
+			if !ok {
+				continue
+			}
+			if !model.ValidName(name) {
+				return "", fmt.Errorf("invalid anchor name %q", name)
+			}
+			if seen[name] {
+				return "", fmt.Errorf("duplicate anchor %q", name)
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+		return line, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+// Preprocess rewrites every @anchor:/@link: markdown link destination in
+// markdown into output goldmark can render directly:
+//
+//   - [label](@anchor:name) becomes the raw HTML `<a id="name"></a>label`:
+//     an empty, invisible anchor placed exactly where the declaration sits,
+//     immediately followed by label as ordinary Markdown text (so any
+//     nested formatting inside label still renders). This marks the anchor
+//     point in the flowing text without turning label into a dead link to
+//     itself.
+//   - [label](@link:scope.target@vX.X.X#anchor) becomes a normal
+//     [label](url#anchor) link, once ref is parsed against defaultScope and
+//     resolved through resolver.
+//
+// An invalid anchor name, an unparseable @link reference, or an @link/
+// anchor that resolver reports as nonexistent is a hard error (see
+// README.md: "check that all @link and @uses land at an existing target").
+func Preprocess(markdown, defaultScope string, resolver Resolver) (string, error) {
+	return forEachNonFencedLine(markdown, func(line string) (string, error) {
+		var lineErr error
+		out := linkRe.ReplaceAllStringFunc(line, func(match string) string {
+			if lineErr != nil {
+				return match
+			}
+			sub := linkRe.FindStringSubmatch(match)
+			label, dest := sub[1], sub[2]
+
+			switch {
+			case strings.HasPrefix(dest, "@anchor:"):
+				name := strings.TrimPrefix(dest, "@anchor:")
+				if !model.ValidName(name) {
+					lineErr = fmt.Errorf("invalid anchor name %q", name)
+					return match
+				}
+				return fmt.Sprintf(`<a id="%s"></a>%s`, name, label)
+
+			case strings.HasPrefix(dest, "@link:"):
+				refStr := strings.TrimPrefix(dest, "@link:")
+				refPart, anchor, _ := strings.Cut(refStr, "#")
+				ref, err := model.ParseTargetRef(refPart, defaultScope)
+				if err != nil {
+					lineErr = fmt.Errorf("invalid @link %q: %w", refStr, err)
+					return match
+				}
+				url, ok := resolver.ResolveTarget(ref)
+				if !ok {
+					lineErr = fmt.Errorf("@link %q does not resolve to an existing target", refStr)
+					return match
+				}
+				if anchor != "" {
+					if !resolver.HasAnchor(ref, anchor) {
+						lineErr = fmt.Errorf("@link %q: target has no anchor %q", refStr, anchor)
+						return match
+					}
+					url += "#" + anchor
+				}
+				return fmt.Sprintf("[%s](%s)", label, url)
+
+			default:
+				return match
+			}
+		})
+		if lineErr != nil {
+			return "", lineErr
+		}
+		return out, nil
+	})
+}
+
+// renderer is shared across Render calls: WithUnsafe is required so the raw
+// <a id="..."> anchors Preprocess injects are emitted as-is rather than
+// stripped. docsweb content comes from source-controlled doc comments, not
+// untrusted input, so this is an acceptable POC tradeoff.
+var renderer = goldmark.New(goldmark.WithRendererOptions(html.WithUnsafe()))
+
+// Render converts already-preprocessed markdown (see Preprocess) to HTML.
+func Render(markdown string) (string, error) {
+	var buf bytes.Buffer
+	if err := renderer.Convert([]byte(markdown), &buf); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// RenderDoc runs Preprocess followed by Render, for callers that don't need
+// the intermediate markdown (e.g. the final HTML-generation pass, once
+// every target and its anchors are already known). Callers that need to
+// validate @link references before all targets/anchors are collected should
+// call Preprocess directly and discard its output.
+func RenderDoc(markdown, defaultScope string, resolver Resolver) (string, error) {
+	pre, err := Preprocess(markdown, defaultScope, resolver)
+	if err != nil {
+		return "", err
+	}
+	return Render(pre)
+}

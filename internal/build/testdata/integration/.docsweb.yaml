@@ -1,0 +1,6 @@
+audience:
+    dev:
+    user:
+scope:
+    lib:
+        path: lib
