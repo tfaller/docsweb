@@ -7,6 +7,7 @@ import (
 
 	"github.com/tfaller/docsweb/internal/collect"
 	"github.com/tfaller/docsweb/internal/config"
+	"github.com/tfaller/docsweb/internal/ignore"
 	"github.com/tfaller/docsweb/internal/mdlink"
 	"github.com/tfaller/docsweb/internal/model"
 )
@@ -70,6 +71,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	reg := collect.NewRegistry()
+	matcher := ignore.Compile(cfg.Ignore)
 
 	excludes := make([]string, 0, len(cfg.Scopes))
 	for name, sc := range cfg.Scopes {
@@ -78,11 +80,11 @@ func Run(opts Options) (*Result, error) {
 		}
 		excludes = append(excludes, filepath.Join(rootDir, sc.Path))
 	}
-	if err := reg.AddScope(collect.Options{Scope: opts.RootScope, Root: rootDir, Exclude: excludes}); err != nil {
+	if err := reg.AddScope(collect.Options{Scope: opts.RootScope, Root: rootDir, Exclude: excludes, Ignore: matcher, IgnoreBase: rootDir}); err != nil {
 		return nil, err
 	}
 	for name, sc := range cfg.Scopes {
-		if err := reg.AddScope(collect.Options{Scope: name, Root: filepath.Join(rootDir, sc.Path)}); err != nil {
+		if err := reg.AddScope(collect.Options{Scope: name, Root: filepath.Join(rootDir, sc.Path), Ignore: matcher, IgnoreBase: rootDir}); err != nil {
 			return nil, err
 		}
 	}

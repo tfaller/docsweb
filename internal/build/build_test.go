@@ -56,3 +56,19 @@ func TestRunErrorsOnUnmappedScopeAudience(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmapped")
 }
+
+// testdata/ignore_bad is the same fixture as testdata/ignore, minus the
+// "ignore:" rule, confirming skip/broken.go really would break the build if
+// it weren't excluded.
+func TestRunWithoutIgnoreErrorsOnBrokenFile(t *testing.T) {
+	_, err := Run(Options{ConfigPath: "testdata/ignore_bad/.docsweb.yaml"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "doesNotExist")
+}
+
+func TestRunIgnoreExcludesMatchedDirectory(t *testing.T) {
+	result, err := Run(Options{ConfigPath: "testdata/ignore/.docsweb.yaml"})
+	require.NoError(t, err)
+	require.Len(t, result.Targets, 1)
+	assert.Equal(t, "kept", result.Targets[0].Target.Key())
+}

@@ -202,6 +202,33 @@ scope:
 	assert.Error(t, err)
 }
 
+func TestParseIgnoreList(t *testing.T) {
+	cfg, err := Parse([]byte(`
+audience:
+    dev:
+scope:
+    s:
+        path: x
+ignore:
+    - testdata/
+    - "*.tmp"
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"testdata/", "*.tmp"}, cfg.Ignore)
+}
+
+func TestParseIgnoreDefaultsToEmpty(t *testing.T) {
+	cfg, err := Parse([]byte(`
+audience:
+    dev:
+scope:
+    s:
+        path: x
+`))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Ignore)
+}
+
 func TestParseScopeWithoutPathOrGitIsError(t *testing.T) {
 	_, err := Parse([]byte(`
 audience:

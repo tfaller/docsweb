@@ -34,3 +34,16 @@ func TestRunBuildEndToEnd(t *testing.T) {
 	assert.FileExists(t, out+"/app.html")
 	assert.FileExists(t, out+"/lib/helper.html")
 }
+
+// TestRunBuildOwnRepo is docsweb's dogfooding smoke test: the project's own
+// root .docsweb.yaml (whose "ignore:" rules exclude testdata/, *_test.go,
+// and README.md's own grammar example) must build cleanly against docsweb's
+// own source tree.
+func TestRunBuildOwnRepo(t *testing.T) {
+	err := run([]string{
+		"build",
+		"--config", "../../.docsweb.yaml",
+		"--out", t.TempDir(),
+	})
+	assert.NoError(t, err)
+}

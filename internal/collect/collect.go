@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/tfaller/docsweb/internal/annotation"
+	"github.com/tfaller/docsweb/internal/ignore"
 	"github.com/tfaller/docsweb/internal/model"
 )
 
@@ -26,6 +27,14 @@ type Options struct {
 	// belong to other, separately-declared scopes (or to build output)
 	// and must not be scanned as part of this one.
 	Exclude []string
+	// Ignore, if set, is matched against every file/directory found under
+	// Root (as a path relative to IgnoreBase) and excludes whatever it
+	// matches, same as a real .gitignore would.
+	Ignore *ignore.Matcher
+	// IgnoreBase is the directory Ignore's patterns are relative to.
+	// Defaults to Root when empty, so a single scope can be scanned
+	// standalone (e.g. in tests) without also having to set this.
+	IgnoreBase string
 }
 
 // Registry accumulates targets discovered across one or more scopes.
@@ -64,6 +73,14 @@ func (r *Registry) AddScope(opts Options) error {
 		return fmt.Errorf("scope %q: %w", opts.Scope, err)
 	}
 
+	ignoreBase := root
+	if opts.IgnoreBase != "" {
+		ignoreBase, err = filepath.Abs(opts.IgnoreBase)
+		if err != nil {
+			return fmt.Errorf("scope %q: %w", opts.Scope, err)
+		}
+	}
+
 	excluded := make([]string, 0, len(opts.Exclude))
 	for _, e := range opts.Exclude {
 		abs := e
@@ -80,13 +97,13 @@ func (r *Registry) AddScope(opts Options) error {
 		clean := filepath.Clean(path)
 
 		if d.IsDir() {
-			if clean != root && (d.Name() == ".git" || isExcluded(clean, excluded)) {
+			if clean != root && (d.Name() == ".git" || isExcluded(clean, excluded) || isIgnored(opts.Ignore, ignoreBase, clean, true)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if isExcluded(clean, excluded) {
+		if isExcluded(clean, excluded) || isIgnored(opts.Ignore, ignoreBase, clean, false) {
 			return nil
 		}
 		if d.Name() == ".docsweb.yaml" || !isProbablySource(d.Name()) {
@@ -123,6 +140,17 @@ func isExcluded(path string, excluded []string) bool {
 		}
 	}
 	return false
+}
+
+func isIgnored(m *ignore.Matcher, base, path string, isDir bool) bool {
+	if m == nil {
+		return false
+	}
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return false
+	}
+	return m.Match(filepath.ToSlash(rel), isDir)
 }
 
 // isProbablySource reports whether a file is worth scanning for docsweb

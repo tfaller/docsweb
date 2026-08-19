@@ -1,0 +1,16 @@
+ignore:
+    # Fixture data with intentionally invalid/conflicting @docsweb
+    # annotations, used by go test - not real documentation.
+    - testdata/
+    # Go test files embed literal @docsweb examples (e.g. the README's
+    # worked example, verbatim) as test fixtures/expected output, not real
+    # documentation - scanning them collides with the real thing.
+    - "*_test.go"
+    # README.md's own grammar example is a real, well-formed @docsweb block
+    # (that's the point - it's shown verbatim), but it references
+    # placeholder targets/uses that don't exist, so it isn't meant to be
+    # built as real documentation.
+    - /README.md
+    # Generated site output and ad-hoc manual smoke-test scratch dirs, not
+    # part of the actual project source.
+    - /dist/

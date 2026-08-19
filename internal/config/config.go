@@ -48,6 +48,10 @@ func (s Scope) Remote() bool { return s.Git != "" }
 type Config struct {
 	Audiences map[model.Audience]Audience
 	Scopes    map[string]Scope
+	// Ignore lists gitignore-style patterns (see internal/ignore) of files
+	// and directories to exclude from every scope this config declares,
+	// relative to this config's own directory.
+	Ignore []string
 }
 
 // rawConfig mirrors the yaml file shape directly; Parse turns it into the
@@ -55,6 +59,7 @@ type Config struct {
 type rawConfig struct {
 	Audience map[string]rawAudience `yaml:"audience"`
 	Scope    map[string]rawScope    `yaml:"scope"`
+	Ignore   []string               `yaml:"ignore"`
 }
 
 type rawAudience struct {
@@ -146,7 +151,7 @@ func Parse(data []byte) (*Config, error) {
 		}
 	}
 
-	return &Config{Audiences: audiences, Scopes: scopes}, nil
+	return &Config{Audiences: audiences, Scopes: scopes, Ignore: raw.Ignore}, nil
 }
 
 // AudienceIncludes reports whether member is group itself, or is

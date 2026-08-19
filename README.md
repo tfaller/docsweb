@@ -113,7 +113,18 @@ scope:
         path: some/path
         audienceMap:
             devs: dev
+ignore:
+    - testdata/
+    - "*_test.go"
 ```
+
+`ignore` excludes files and directories from every scope this config declares, relative to the
+config's own directory - useful for keeping generated fixtures, test-only data, or build output
+out of the documentation. Rules work like `.gitignore`: blank lines and `#` comments are skipped,
+`!` negates a rule (a later rule overrides an earlier one), a trailing `/` matches directories
+only, and a pattern is anchored to the config's directory if it starts with `/` or contains a `/`
+anywhere but the end - otherwise it matches at any depth. `*`, `?` and `**` work as usual;
+`[...]` character classes are not supported.
 
 ## After POC
 

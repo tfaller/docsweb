@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tfaller/docsweb/internal/ignore"
 	"github.com/tfaller/docsweb/internal/model"
 )
 
@@ -60,4 +61,41 @@ func TestAddScopeExcludesSubdirectory(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = r.Get("alpha")
 	assert.True(t, ok)
+}
+
+// testdata/ignoretest/skip/b.go redefines the same target as
+// testdata/ignoretest/a.go, so without an ignore rule this scope fails with
+// a duplicate-target error.
+func TestAddScopeWithoutIgnoreErrorsOnDuplicate(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{Scope: "", Root: "testdata/ignoretest"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already defined")
+}
+
+func TestAddScopeIgnoreSkipsMatchedDirectory(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{
+		Scope: "", Root: "testdata/ignoretest",
+		Ignore: ignore.Compile([]string{"skip/"}),
+	})
+	require.NoError(t, err)
+
+	_, ok := r.Get("kept")
+	assert.True(t, ok)
+	assert.Len(t, r.Targets(), 1)
+}
+
+func TestAddScopeIgnoreBaseIsRelativeToGivenDir(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{
+		Scope: "", Root: "testdata/ignoretest",
+		Ignore:     ignore.Compile([]string{"ignoretest/skip/"}),
+		IgnoreBase: "testdata",
+	})
+	require.NoError(t, err)
+
+	_, ok := r.Get("kept")
+	assert.True(t, ok)
+	assert.Len(t, r.Targets(), 1)
 }
