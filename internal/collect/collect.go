@@ -3,6 +3,45 @@
 // enforcing that a target name is unique within its scope.
 package collect
 
+// @docsweb
+// @define collect v0.1.0
+// @name Collect
+// @summary
+// Walks a scope's source tree, extracts docsweb blocks, and builds a
+// validated Target registry - enforcing that a target name is unique
+// within its scope.
+// @uses annotation@v0.1.0
+// @uses ignore@v0.1.0
+// @uses model@v0.1.0
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Collect
+//
+// `AddScope` walks a directory recursively, skips `.git`, whatever
+// `Options.Exclude` names (other scopes' subtrees, so a shared root walk
+// never double-scans them) and whatever `Options.Ignore` matches, then
+// hands every remaining file's contents to
+// [annotation](@link:annotation@v0.1.0)'s
+// [block grammar](@link:annotation@v0.1.0#grammar). Non-source-looking
+// extensions (images, archives, binaries) are skipped outright without
+// being read.
+//
+// Every `annotation.TargetDoc` that comes back is converted from raw
+// strings into validated [model](@link:model@v0.1.0) types here: versions
+// are parsed, `@uses` references are resolved against the scope being
+// walked (so a scope-less `@uses` defaults to its own scope), and
+// audience lists are validated. Defining the same target name twice
+// within one scope - even across two different files - is a hard error,
+// reported with both files that tried to define it.
+//
+// A `Registry` accumulates targets across as many `AddScope` calls as a
+// build needs (one root scope plus any number of declared sub-scopes),
+// keyed by `scope.name`, and preserves first-discovered order for
+// deterministic output.
+// @docsweb
+
 import (
 	"fmt"
 	"io/fs"

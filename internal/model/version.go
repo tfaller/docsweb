@@ -2,6 +2,59 @@
 // references, and the fully-parsed representation of a target.
 package model
 
+// @docsweb
+// @define model v0.1.0
+// @name Model
+// @summary
+// Core domain types: exact SemVer versions, target references, and the
+// fully-merged Target representation every other package builds on.
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Model
+//
+// `model` depends on no other docsweb package - every other package either
+// produces or consumes these types.
+//
+// ## Versions
+//
+// `Version` is deliberately narrow: exact `major.minor.patch`, never a
+// range and never pre-release/build metadata. `ParseVersion` accepts an
+// optional leading `v` (`v1.0.1` or `1.0.1`).
+//
+// Comparing a `@uses` reference's old version against the referenced
+// target's current version yields a [DiffKind](@anchor:diffkind):
+//
+// - `DiffMajor` - breaking, reported as outdated.
+// - `DiffMinor` - non-breaking, reported as informational.
+// - `DiffPatch` - ignored entirely by the pipeline.
+// - `DiffNone` - up to date.
+//
+// `Diff(oldV, newV)` computes this classification. It is the single source
+// of truth behind the outdated-uses reporting done during a build.
+//
+// ## References
+//
+// `TargetRef` identifies a specific version of a target, exactly as
+// written in a `@uses` line or an `@link` destination:
+// `[scope.]name@vX.Y.Z`. `ParseTargetRef` resolves a scope-less reference
+// against a caller-supplied default scope - normally the scope of the file
+// the reference was written in.
+//
+// `TargetRef.Key()` and `Target.Key()` both return the scope+name identity
+// used everywhere else as a map key, deliberately ignoring the version - a
+// target has exactly one live version at a time.
+//
+// ## Target
+//
+// `Target` is the fully-parsed and merged result of every docsweb block
+// that defines or continues a given target name within one scope: display
+// name, summary, `@uses` list, audiences, changelog entries, and the main
+// `@doc` body, plus `SourceFiles` for traceability back to where each
+// piece was written.
+// @docsweb
+
 import (
 	"fmt"
 	"strconv"

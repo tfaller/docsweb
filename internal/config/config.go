@@ -3,6 +3,45 @@
 // format this implements.
 package config
 
+// @docsweb
+// @define config v0.1.0
+// @name Config
+// @summary
+// Loads and validates .docsweb.yaml: declared audiences (with combine),
+// scopes (local or remote), and repo-wide ignore rules.
+// @uses model@v0.1.0
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Config
+//
+// `Load`/`Parse` turn a `.docsweb.yaml` file into a validated `Config`:
+//
+// - `Audiences` - the `audience:` map, each entry naming the other
+//   audiences (if any) it's an umbrella over via `combine`.
+//   `AudienceIncludes` walks that combine graph (cycle-safe) to decide
+//   whether one audience transitively includes another.
+// - `Scopes` - the `scope:` map, keyed by the scope's full dot-joined
+//   name (`"parent.child"` is a valid key on its own, not a nested
+//   structure). An entry with `git` set is a remote scope; the POC parses
+//   it but rejects it at build time.
+// - `Ignore` - the repo-wide `ignore:` list, handed to
+//   [ignore](@link:ignore@v0.1.0) and applied to every scope.
+//
+// Duplicate audience or scope names are rejected for free, since
+// `yaml.v3` errors on a mapping with a repeated key rather than silently
+// keeping the last one.
+//
+// ## Sub-scope [audience mapping](@anchor:audiencemap)
+//
+// `ResolveScopeAudience` implements the README's "Scopes" mapping rule:
+// an audience name that matches one declared in this config auto-maps to
+// itself; anything else must appear in that scope's own `audienceMap`, or
+// resolution fails. This is applied to every non-root-scope target's
+// `@audience` names, including changelog-entry overrides, during a build.
+// @docsweb
+
 import (
 	"fmt"
 	"os"

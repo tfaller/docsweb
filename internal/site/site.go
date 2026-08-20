@@ -3,6 +3,48 @@
 // everything together.
 package site
 
+// @docsweb
+// @define site v0.1.0
+// @name Site
+// @summary
+// Renders a build.Result into a static HTML site: one page per target,
+// one dedicated outdated-uses page, and an index page linking everything
+// together.
+// @uses build@v0.1.0
+// @uses model@v0.1.0
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Site
+//
+// `Generate` writes three kinds of page under an output directory, all
+// sharing one `html/template` page shell:
+//
+// - **A target page** per collected target, at
+//   [build.TargetURL](@link:build@v0.1.0)'s path: display name, version,
+//   audiences, rendered summary/doc, its resolved `@uses` list, and its
+//   rendered changelog entries.
+// - **One [outdated-uses page](@link:build@v0.1.0#outdated)**
+//   (`_outdated.html`), grouping every major (breaking) and minor
+//   (informational) outdated `@uses` found during the build. Each row
+//   links to both the referencing and the referenced target, and shows
+//   the referenced target's *current* changelog entries as "what's
+//   changed since" - the POC has no version history to synthesize an
+//   exact range from.
+// - **An index page** (`index.html`), grouping every target by scope.
+//
+// Every page rendered gets an HTML template's default auto-escaping
+// except for the pre-rendered pieces that already came out of
+// [build](@link:build@v0.1.0) as trusted HTML (`SummaryHTML`, `DocHTML`,
+// changelog HTML) - those are inserted verbatim via `template.HTML`.
+//
+// `Generate` never deletes anything it doesn't itself write, so pointing
+// it at a directory that already has unrelated content in it is safe,
+// if potentially confusing - picking a dedicated output directory is the
+// caller's job.
+// @docsweb
+
 import (
 	"bytes"
 	"fmt"

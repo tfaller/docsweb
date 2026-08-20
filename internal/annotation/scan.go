@@ -6,6 +6,70 @@
 // implements.
 package annotation
 
+// @docsweb
+// @define annotation v0.1.0
+// @name Annotation
+// @summary
+// Comment scanning and the @docsweb block grammar: turns raw source text
+// into a per-file list of merged, still-unvalidated target docs.
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Annotation
+//
+// `annotation` depends on no other docsweb package - it is purely
+// textual, knowing nothing about scopes, SemVer, or target registries
+// (that's the job of scope collection). Everything it produces, including
+// `@uses`/`@audience` content, stays a raw string; validating those
+// strings into real references and versions happens one layer up, once a
+// caller can supply a scope to resolve against.
+//
+// ## Finding comments
+//
+// `findComments` scans a file for line-comment runs (`//`, `#`) and block
+// comments (`/* */`, `<!-- -->`), independent of file extension - the POC
+// detects comment syntax by fixed delimiter, not by language.
+//
+// ## The block grammar
+//
+// A [docsweb block](@anchor:grammar) starts at a line reading exactly
+// `@docsweb` and ends at the next `@docsweb` line, or the natural end of
+// the surrounding comment: a block comment's closing delimiter, or the
+// first non-comment/blank line ending a run of line comments. Before the
+// block is read, the common leading whitespace of all its lines is
+// stripped once, so indentation in the source file never leaks into the
+// documentation itself.
+//
+// Recognized tags: `@define`, `@name`, `@summary`, `@uses`, `@audience`,
+// `@changelog`, `@doc`. Anything else belongs to whichever tag was opened
+// last, verbatim, as Markdown - including blank lines, which are a
+// paragraph break rather than a section boundary. A fenced code block
+// suppresses tag recognition, including `@docsweb` itself, so the grammar
+// can be shown as a literal example without being parsed as one:
+//
+// ```
+// @docsweb
+// @define example v1.0.0
+// @doc
+// Shown here as an example only - this fence keeps it from being parsed.
+// @docsweb
+// ```
+//
+// `@changelog` has one carve-out: it may be immediately followed by its
+// own `@audience` override line before the entry body continues. The
+// override line is reattributed to the changelog entry rather than parsed
+// as a second, empty `@audience` section.
+//
+// ## Multiple blocks, one file
+//
+// `ParseSource` merges every block in a file in source order: the first
+// block must `@define` a target; any later block without `@define`
+// concatenates onto the *previous* target instead of starting a new one -
+// singular fields (name, summary, doc) join with a blank line, list
+// fields (`@uses`, `@audience`, `@changelog`) simply append.
+// @docsweb
+
 import "strings"
 
 // blockDelim is a pair of block-comment delimiters, e.g. "/*" and "*/".

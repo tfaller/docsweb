@@ -16,6 +16,45 @@
 // literal characters.
 package ignore
 
+// @docsweb
+// @define ignore v0.1.0
+// @name Ignore
+// @summary
+// A gitignore-style pattern matcher used to exclude files and directories
+// from a scope walk via a .docsweb.yaml "ignore:" list.
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Ignore
+//
+// `ignore` depends on no other docsweb package; it operates purely on
+// path strings.
+//
+// `Compile` turns a `.docsweb.yaml` "ignore:" list into a `*Matcher`.
+// Supported syntax mirrors the common subset of `.gitignore`:
+//
+// - blank lines and `#` comments are skipped
+// - a leading `!` negates a rule - a later rule wins over an earlier one
+// - a trailing `/` restricts a pattern to directories
+// - a leading `/`, or any `/` before the pattern's final character,
+//   anchors it to the ignore base directory; otherwise it matches at any
+//   depth
+// - `*` matches any run of characters within one path segment, `?`
+//   matches exactly one, `**` matches any number of path segments
+// - POSIX `[...]` character classes are **not** supported - treated as
+//   literal characters
+//
+// A `nil *Matcher` matches nothing, so callers can always call `Match`
+// without a nil check, whether or not a config declared any `ignore:`
+// rules at all.
+//
+// This is what makes this project's own root `.docsweb.yaml` possible: it
+// `ignore`s test fixtures, generated build output, and other paths that
+// would otherwise collide with or break docsweb's real documentation
+// build - the one that produced this very page.
+// @docsweb
+
 import (
 	"regexp"
 	"strings"

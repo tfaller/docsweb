@@ -6,6 +6,55 @@
 // text is ever handed to the Markdown renderer.
 package mdlink
 
+// @docsweb
+// @define mdlink v0.1.0
+// @name Markdown links
+// @summary
+// Resolves @anchor:/@link: pseudo-URLs in Markdown to real HTML before
+// handing the text to a goldmark renderer.
+// @uses model@v0.1.0
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Markdown links
+//
+// A Markdown link whose destination is an `@anchor:` or `@link:`
+// pseudo-URL is rewritten into something goldmark understands *before*
+// the surrounding text is ever handed to the renderer - so the
+// destinations below can be written as plain Markdown link destinations
+// without any special renderer support:
+//
+// ```
+// [label](@anchor:name)
+// [label](@link:scope.target@vX.Y.Z#anchor)
+// ```
+//
+// The first becomes an invisible `<a id="name"></a>` placed immediately
+// before `label`, marking the anchor point in the flowing text without
+// turning `label` itself into a dead self-link. The second becomes a
+// normal `[label](url#anchor)` link once the reference is resolved.
+//
+// Both directions work line by line and skip fenced (```) code blocks -
+// which is exactly how the pair above gets to appear on this page as a
+// literal example instead of a resolved link.
+//
+// ## The [Resolver](@anchor:resolver)
+//
+// `mdlink` knows nothing about site URL layout or which targets actually
+// exist - it asks a caller-supplied `Resolver` (`ResolveTarget`,
+// `HasAnchor`) instead. An unparseable reference, or a `@link`/anchor the
+// resolver reports as missing, is a hard error: per the project's
+// pipeline rules, every `@link` must land at an existing target (and
+// anchor, if one is given) before a build is allowed to succeed.
+//
+// `CollectAnchors` runs the same line-by-line scan just to gather
+// `@anchor:name` declarations, so a caller can build the full set of
+// known anchors across every target before resolving any `@link` against
+// them - anchor and use-site can appear in either order across the
+// source tree.
+// @docsweb
+
 import (
 	"bytes"
 	"fmt"

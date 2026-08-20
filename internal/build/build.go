@@ -1,5 +1,57 @@
 package build
 
+// @docsweb
+// @define build v0.1.0
+// @name Build
+// @summary
+// Orchestrates a full docsweb build: collect every scope's targets,
+// validate and classify @uses references, resolve @anchor:/@link:
+// destinations, and render every target's Markdown to HTML.
+// @uses collect@v0.1.0
+// @uses config@v0.1.0
+// @uses ignore@v0.1.0
+// @uses mdlink@v0.1.0
+// @uses model@v0.1.0
+// @audience dev
+// @changelog
+// Initial documentation.
+// @doc
+// # Build
+//
+// `Run` is the whole pipeline in one call:
+//
+// 1. Load `.docsweb.yaml` and compile its `ignore:` list via
+//    [ignore](@link:ignore@v0.1.0).
+// 2. Walk the root scope plus every declared local scope with
+//    [collect](@link:collect@v0.1.0), excluding each other declared
+//    scope's own subtree from the root walk so nothing is scanned twice.
+//    A remote (`git:`) scope is a hard error - out of scope for this POC.
+// 3. Remap every non-root-scope target's `@audience` names through
+//    [config](@link:config@v0.1.0)'s
+//    [sub-scope audience mapping](@link:config@v0.1.0#audiencemap).
+// 4. `ResolveUses` validates that every `@uses` lands on an existing
+//    target, and classifies each one by
+//    [DiffKind](@link:model@v0.1.0#diffkind) into an
+//    [outdated use](@anchor:outdated): `DiffMajor` is reported as
+//    breaking, `DiffMinor` as informational, `DiffPatch`/`DiffNone` are
+//    dropped entirely.
+// 5. Collect every target's declared anchors up front (anchor names must
+//    be unique across a target's `@summary`+`@doc`+`@changelog` pieces
+//    combined), so a `@link ...#anchor` can be resolved regardless of
+//    which target - referencing or referenced - was scanned first.
+// 6. Render every target's Markdown pieces to HTML via
+//    [mdlink](@link:mdlink@v0.1.0#resolver), backed by a `Resolver` over
+//    the collected registry and its anchor sets.
+//
+// `TargetURL` is the single canonical URL scheme every downstream
+// consumer (currently just the static site generator) uses to turn a
+// `TargetRef` into a page path: dot-joined scope segments become path
+// segments, so scope `"a.b"`, name `"c"` becomes `a/b/c.html`, and the
+// root scope's `"c"` becomes just `c.html`. There is exactly one page per
+// target - its current version - since the POC has no version history to
+// page through.
+// @docsweb
+
 import (
 	"fmt"
 	"path/filepath"

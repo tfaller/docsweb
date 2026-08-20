@@ -3,6 +3,55 @@
 // resolve @anchor:/@link: destinations, and render the static HTML site.
 package main
 
+// @docsweb
+// @define docsweb v0.1.0
+// @name docsweb
+// @summary
+// Write technical documentation where it belongs: besides the code.
+// docsweb reads @docsweb annotation blocks out of source-code comments
+// and builds a cross-linked static HTML site from them.
+// @uses build@v0.1.0
+// @uses site@v0.1.0
+// @audience dev, user
+// @changelog
+// Initial documentation - this page was itself produced by running
+// `docsweb build` against this repository.
+// @doc
+// # docsweb
+//
+// Documentation lives next to the code it describes. Annotate a comment
+// with a [`@docsweb` block](@link:annotation@v0.1.0#grammar) - `@define`
+// a target and version, optionally `@name`/`@summary`/`@audience` it,
+// `@uses` other targets to track when they change underneath you, and
+// write the actual documentation as Markdown under `@doc`. Everything
+// else - cross-linking, outdated-use detection, static site generation -
+// is `docsweb build`'s job.
+//
+// ## Running a build
+//
+// ```
+// docsweb build [--config .docsweb.yaml] [--scope ""] [--out dist]
+// ```
+//
+// `--config` points at the root `.docsweb.yaml` (see
+// [config](@link:config@v0.1.0)); its directory is the root scope's file
+// tree. `--scope` names that root scope itself (default: unscoped).
+// `--out` is the output directory for the generated site (default:
+// `dist`).
+//
+// ## This project, dogfed
+//
+// This very site is docsweb documenting itself: every package under
+// `internal/` and this CLI command is a target, `@uses` mirrors the real
+// Go import graph between them, and the annotation grammar's own worked
+// example lives in [annotation](@link:annotation@v0.1.0). Start at
+// [model](@link:model@v0.1.0) for the core types, then
+// [collect](@link:collect@v0.1.0) and [config](@link:config@v0.1.0) for
+// how a scope is discovered, [mdlink](@link:mdlink@v0.1.0) for how
+// `@anchor:`/`@link:` are resolved, and [site](@link:site@v0.1.0) for how
+// the result becomes the HTML you're reading now.
+// @docsweb
+
 import (
 	"flag"
 	"fmt"
