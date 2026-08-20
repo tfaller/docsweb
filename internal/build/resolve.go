@@ -68,3 +68,30 @@ func ResolveUses(reg *collect.Registry) ([]UsageIssue, error) {
 
 	return issues, nil
 }
+
+// UsedByRef records that a target depends on another via @uses. User is the
+// dependent target's own current ref; Use is the exact (possibly outdated)
+// ref it declared in its @uses.
+type UsedByRef struct {
+	User model.TargetRef
+	Use  model.TargetRef
+}
+
+// ComputeUsedBy inverts every target's @uses list into a "who depends on me"
+// index keyed by the referenced target's Key(), sorted deterministically by
+// dependant. Per README.md's "Usage graph" section @uses already implies its
+// own reverse edge, so this is derived straight from the registry - no
+// separate annotation is needed to declare a dependant.
+func ComputeUsedBy(reg *collect.Registry) map[string][]UsedByRef {
+	usedBy := make(map[string][]UsedByRef)
+	for _, t := range reg.Targets() {
+		for _, use := range t.Uses {
+			usedBy[use.Key()] = append(usedBy[use.Key()], UsedByRef{User: t.Ref(), Use: use})
+		}
+	}
+	for key, entries := range usedBy {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].User.Key() < entries[j].User.Key() })
+		usedBy[key] = entries
+	}
+	return usedBy
+}

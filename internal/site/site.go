@@ -4,17 +4,19 @@
 package site
 
 // @docsweb
-// @define site v0.1.0
+// @define site v0.2.0
 // @name Site
 // @summary
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.1.0
+// @uses build@v0.2.0
 // @uses model@v0.1.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// Target pages now render a "Used by" section (the reverse of `@uses`)
+// listing every target that depends on this one, backed by
+// [build.ComputeUsedBy](@link:build@v0.2.0). Non-breaking addition.
 // @doc
 // # Site
 //
@@ -23,8 +25,10 @@ package site
 //
 // - **A target page** per collected target, at
 //   [build.TargetURL](@link:build@v0.1.0)'s path: display name, version,
-//   audiences, rendered summary/doc, its resolved `@uses` list, and its
-//   rendered changelog entries.
+//   audiences, rendered summary/doc, its resolved `@uses` list, a "Used
+//   by" list of every target that depends on it (the reverse of `@uses`,
+//   computed by `build.ComputeUsedBy` - no separate annotation needed),
+//   and its rendered changelog entries.
 // - **One [outdated-uses page](@link:build@v0.1.0#outdated)**
 //   (`_outdated.html`), grouping every major (breaking) and minor
 //   (informational) outdated `@uses` found during the build. Each row
@@ -108,6 +112,11 @@ type useRef struct {
 	Found bool
 }
 
+type usedByRef struct {
+	Label string
+	URL   string
+}
+
 type changelogItem struct {
 	Audiences string
 	HTML      template.HTML
@@ -122,6 +131,7 @@ type targetPageData struct {
 	SummaryHTML template.HTML
 	DocHTML     template.HTML
 	Uses        []useRef
+	UsedBy      []usedByRef
 	Changelog   []changelogItem
 }
 
@@ -154,6 +164,13 @@ func writeTargetPage(outDir string, rt *build.RenderedTarget, byKey map[string]*
 			ur.Label += " (unresolved)"
 		}
 		data.Uses = append(data.Uses, ur)
+	}
+
+	for _, ub := range rt.UsedBy {
+		data.UsedBy = append(data.UsedBy, usedByRef{
+			Label: fmt.Sprintf("%s@%s", ub.User.Key(), ub.User.Version),
+			URL:   relLink(url, build.TargetURL(ub.User)),
+		})
 	}
 
 	for _, c := range rt.ChangelogHTML {

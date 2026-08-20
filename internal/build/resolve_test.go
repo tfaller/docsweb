@@ -46,3 +46,32 @@ func TestResolveUsesErrorsOnMissingTarget(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "doesNotExist")
 }
+
+func TestComputeUsedByInvertsUses(t *testing.T) {
+	reg := collect.NewRegistry()
+	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/resolve"}))
+
+	usedBy := ComputeUsedBy(reg)
+
+	// All four consumers reference "producer", just at different versions.
+	entries := usedBy["producer"]
+	require.Len(t, entries, 4)
+
+	byUser := map[string]UsedByRef{}
+	for _, e := range entries {
+		byUser[e.User.Key()] = e
+	}
+
+	major, ok := byUser["consumerMajor"]
+	require.True(t, ok)
+	assert.Equal(t, model.Version{Major: 1, Minor: 0, Patch: 0}, major.Use.Version)
+
+	// Sorted deterministically by dependant key.
+	assert.Equal(t, "consumerCurrent", entries[0].User.Key())
+	assert.Equal(t, "consumerMajor", entries[1].User.Key())
+	assert.Equal(t, "consumerMinor", entries[2].User.Key())
+	assert.Equal(t, "consumerPatch", entries[3].User.Key())
+
+	// A target nobody depends on has no entry at all.
+	assert.Empty(t, usedBy["consumerMajor"])
+}

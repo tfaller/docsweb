@@ -107,6 +107,14 @@ var targetTmpl = template.Must(template.New("target").Parse(`
 {{else}}<p><em>No @uses references.</em></p>{{end}}
 </section>
 
+<section class="used-by">
+<h2>Used by</h2>
+{{if .UsedBy}}<ul class="plain">
+{{range .UsedBy}}<li><a href="{{.URL}}">{{.Label}}</a></li>
+{{end}}</ul>
+{{else}}<p><em>No dependants.</em></p>{{end}}
+</section>
+
 <section class="changelog">
 <h2>Changelog</h2>
 {{if .Changelog}}

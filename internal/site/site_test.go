@@ -71,12 +71,26 @@ func buildResult() *build.Result {
 			ChangelogHTML: []build.ChangelogHTML{
 				{Audiences: []model.Audience{"dev"}, HTML: "<p>Rewrote internals.</p>"},
 			},
+			// "app" @uses "helper" -> the reverse edge.
+			UsedBy: []build.UsedByRef{
+				{
+					User: app.Ref(),
+					Use:  model.TargetRef{Scope: "libs.util", Name: "helper", Version: v("v1.0.0")},
+				},
+			},
 		},
 		{
 			Target:  lib2,
 			DocHTML: "<p>Lib2 documentation body.</p>",
 			ChangelogHTML: []build.ChangelogHTML{
 				{HTML: "<p>Added a new helper function.</p>"},
+			},
+			// "app" @uses "lib2" -> the reverse edge.
+			UsedBy: []build.UsedByRef{
+				{
+					User: app.Ref(),
+					Use:  model.TargetRef{Scope: "", Name: "lib2", Version: v("v1.0.0")},
+				},
 			},
 		},
 	}
@@ -125,6 +139,8 @@ func TestGenerate_TargetPages(t *testing.T) {
 	// Cross-target @uses link to the root-scoped "lib2" target.
 	assert.Contains(t, app, `href="lib2.html"`)
 	assert.Contains(t, app, "lib2@v1.0.0")
+	// "app" has no dependants of its own.
+	assert.Contains(t, app, "No dependants.")
 
 	// Nested-scope target page must land at the nested directory build.TargetURL implies.
 	helperPath := filepath.Join(outDir, "libs", "util", "helper.html")
@@ -135,6 +151,10 @@ func TestGenerate_TargetPages(t *testing.T) {
 	assert.Contains(t, helper, "Helper documentation body.")
 	assert.Contains(t, helper, "Rewrote internals.")
 	assert.Contains(t, helper, "dev") // changelog audience shown
+	// "Used by" section: linked back to the dependant's own page.
+	assert.Contains(t, helper, "Used by")
+	assert.Contains(t, helper, `href="../../app.html"`)
+	assert.Contains(t, helper, "app@v1.0.0")
 
 	lib2Path := filepath.Join(outDir, "lib2.html")
 	lib2 := readFile(t, lib2Path)
@@ -143,6 +163,9 @@ func TestGenerate_TargetPages(t *testing.T) {
 	assert.Contains(t, lib2, "Added a new helper function.")
 	// No audience override on this changelog entry -> "whole target audience".
 	assert.Contains(t, lib2, "whole target audience")
+	// "Used by" section: linked back to the dependant's own page.
+	assert.Contains(t, lib2, `href="app.html"`)
+	assert.Contains(t, lib2, "app@v1.0.0")
 }
 
 func TestGenerate_OutdatedPage(t *testing.T) {

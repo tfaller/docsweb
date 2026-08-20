@@ -32,6 +32,13 @@ func TestRunFullIntegration(t *testing.T) {
 	require.Len(t, helper.ChangelogHTML, 1)
 	assert.Equal(t, []model.Audience{"dev"}, helper.ChangelogHTML[0].Audiences)
 
+	// "app" @uses "lib.helper" -> the reverse edge shows up on helper's
+	// UsedBy, and app itself has no dependants.
+	require.Len(t, helper.UsedBy, 1)
+	assert.Equal(t, "app", helper.UsedBy[0].User.Key())
+	assert.Equal(t, model.Version{Major: 1, Minor: 0, Patch: 0}, helper.UsedBy[0].Use.Version)
+	assert.Empty(t, app.UsedBy)
+
 	require.Len(t, result.Issues, 1)
 	assert.Equal(t, "app", result.Issues[0].User.Key())
 	assert.Equal(t, model.DiffMinor, result.Issues[0].Kind)

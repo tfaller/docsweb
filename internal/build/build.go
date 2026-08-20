@@ -1,7 +1,7 @@
 package build
 
 // @docsweb
-// @define build v0.1.0
+// @define build v0.2.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: collect every scope's targets,
@@ -14,7 +14,9 @@ package build
 // @uses model@v0.1.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// Added `ComputeUsedBy` and `RenderedTarget.UsedBy`: a reverse index of
+// every target's `@uses`, so a target's page can show which other targets
+// depend on it. Non-breaking addition.
 // @doc
 // # Build
 //
@@ -42,6 +44,10 @@ package build
 // 6. Render every target's Markdown pieces to HTML via
 //    [mdlink](@link:mdlink@v0.1.0#resolver), backed by a `Resolver` over
 //    the collected registry and its anchor sets.
+// 7. `ComputeUsedBy` inverts every target's `@uses` list into a "Used by"
+//    index keyed by the referenced target - `@uses` already implies its
+//    own reverse edge, so no separate annotation is needed to declare a
+//    dependant.
 //
 // `TargetURL` is the single canonical URL scheme every downstream
 // consumer (currently just the static site generator) uses to turn a
@@ -89,6 +95,9 @@ type RenderedTarget struct {
 	SummaryHTML   string
 	DocHTML       string
 	ChangelogHTML []ChangelogHTML
+	// UsedBy lists every other target whose @uses references this one -
+	// the reverse of Target.Uses. See ComputeUsedBy.
+	UsedBy []UsedByRef
 }
 
 // Result is everything internal/site needs to render the static output.
@@ -155,10 +164,11 @@ func Run(opts Options) (*Result, error) {
 		return nil, err
 	}
 	resolver := &registryResolver{reg: reg, anchors: anchors}
+	usedBy := ComputeUsedBy(reg)
 
 	rendered := make([]RenderedTarget, 0, len(reg.Targets()))
 	for _, t := range reg.Targets() {
-		rt := RenderedTarget{Target: t}
+		rt := RenderedTarget{Target: t, UsedBy: usedBy[t.Key()]}
 
 		rt.SummaryHTML, err = mdlink.RenderDoc(t.Summary, t.Scope, resolver)
 		if err != nil {
