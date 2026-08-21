@@ -7,14 +7,16 @@
 package annotation
 
 // @docsweb
-// @define annotation v0.1.0
+// @define annotation v0.2.0
 // @name Annotation
 // @summary
 // Comment scanning and the @docsweb block grammar: turns raw source text
 // into a per-file list of merged, still-unvalidated target docs.
 // @audience dev
 // @changelog
-// Initial documentation.
+// Every parsed TargetDoc now carries DefineLine, the 1-based source line
+// number of its @define line, so a caller (git-blame attribution) can find
+// exactly which line introduced the current version. Non-breaking addition.
 // @doc
 // # Annotation
 //
@@ -89,6 +91,10 @@ type rawComment struct {
 	// lines are the comment's content lines with the comment
 	// delimiters/prefixes already stripped.
 	lines []string
+	// lineNos are lines' 1-based source line numbers, parallel to lines -
+	// tracked so a tag's original source position (e.g. an @define line, for
+	// git-blame attribution) survives comment-stripping/dedenting.
+	lineNos []int
 }
 
 // findComments scans src and returns every comment region, in source order.
@@ -105,16 +111,19 @@ func findComments(src string) []rawComment {
 			// Collect until the matching close delimiter, which may be on
 			// the same line or a later one.
 			var content []string
+			var contentLines []int
 			rest := trimmed[len(delim.open):]
 			closed := false
 			for {
 				if idx := strings.Index(rest, delim.close); idx >= 0 {
 					content = append(content, rest[:idx])
+					contentLines = append(contentLines, i+1)
 					closed = true
 					i++
 					break
 				}
 				content = append(content, rest)
+				contentLines = append(contentLines, i+1)
 				i++
 				if i >= len(lines) {
 					break
@@ -122,16 +131,18 @@ func findComments(src string) []rawComment {
 				rest = lines[i]
 			}
 			_ = closed
-			out = append(out, rawComment{lines: content})
+			out = append(out, rawComment{lines: content, lineNos: contentLines})
 			continue
 		}
 
 		if prefix, ok := matchLinePrefix(trimmed); ok {
 			var content []string
+			var contentLines []int
 			for i < len(lines) {
 				t := strings.TrimSpace(lines[i])
 				if t == prefix {
 					content = append(content, "")
+					contentLines = append(contentLines, i+1)
 					i++
 					continue
 				}
@@ -140,9 +151,10 @@ func findComments(src string) []rawComment {
 					break
 				}
 				content = append(content, p)
+				contentLines = append(contentLines, i+1)
 				i++
 			}
-			out = append(out, rawComment{lines: content})
+			out = append(out, rawComment{lines: content, lineNos: contentLines})
 			continue
 		}
 

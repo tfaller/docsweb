@@ -16,6 +16,20 @@ var tagNames = []string{"define", "name", "summary", "uses", "audience", "change
 type rawSection struct {
 	Tag   string
 	Lines []string
+	// Line is the 1-based source line number of the section's opening tag
+	// line. Only meaningful for sections that actually start at a tag line
+	// (every section here does, since parseSections only ever opens one at
+	// a matched tag) - used by @define to attribute the version bump to a
+	// specific source line for git-blame lookups.
+	Line int
+}
+
+// block is one dedented, still-mechanically-unparsed @docsweb...@docsweb
+// block, with each line's original 1-based source line number preserved
+// alongside it.
+type block struct {
+	lines   []string
+	lineNos []int
 }
 
 // ChangelogEntry is one raw (unvalidated) @changelog section.
@@ -40,19 +54,24 @@ type TargetDoc struct {
 	AudienceRaw []string
 	Changelog   []ChangelogEntry
 	Doc         string
+	// DefineLine is the 1-based source line number of this target's
+	// @define line, used to attribute its current version to whoever last
+	// changed that line (git blame). Zero for a TargetDoc that somehow has
+	// no @define (never produced by ParseSource itself).
+	DefineLine int
 }
 
 // ParseSource extracts and merges every docsweb target defined in a single
 // file's source text, in the order they're defined.
 func ParseSource(src string) ([]TargetDoc, error) {
-	var blocks [][]string
+	var blocks []block
 	for _, c := range findComments(src) {
 		blocks = append(blocks, extractBlocksFromComment(c)...)
 	}
 
 	var targets []TargetDoc
-	for bi, blockLines := range blocks {
-		sections := parseSections(blockLines)
+	for bi, blk := range blocks {
+		sections := parseSections(blk.lines, blk.lineNos)
 		bd, err := semanticize(sections)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", bi+1, err)
@@ -68,6 +87,7 @@ func ParseSource(src string) ([]TargetDoc, error) {
 				AudienceRaw: bd.audienceRaw,
 				Changelog:   bd.changelog,
 				Doc:         bd.doc,
+				DefineLine:  bd.defineLine,
 			})
 			continue
 		}
@@ -90,37 +110,41 @@ func ParseSource(src string) ([]TargetDoc, error) {
 // extractBlocksFromComment splits one comment's content lines into the
 // (dedented) line sets of every @docsweb ... @docsweb block it contains. A
 // block left unclosed simply runs to the end of the comment.
-func extractBlocksFromComment(c rawComment) [][]string {
-	var blocks [][]string
+func extractBlocksFromComment(c rawComment) []block {
+	var blocks []block
 	var cur []string
+	var curNos []int
 	inBlock := false
 	inFence := false
 
-	for _, l := range c.lines {
+	for idx, l := range c.lines {
+		ln := c.lineNos[idx]
 		if strings.HasPrefix(strings.TrimLeft(l, " \t"), "```") {
 			inFence = !inFence
 			if inBlock {
 				cur = append(cur, l)
+				curNos = append(curNos, ln)
 			}
 			continue
 		}
 		if !inFence && strings.TrimSpace(l) == "@docsweb" {
 			if inBlock {
-				blocks = append(blocks, dedent(cur))
-				cur = nil
+				blocks = append(blocks, block{lines: dedent(cur), lineNos: curNos})
+				cur, curNos = nil, nil
 				inBlock = false
 			} else {
 				inBlock = true
-				cur = nil
+				cur, curNos = nil, nil
 			}
 			continue
 		}
 		if inBlock {
 			cur = append(cur, l)
+			curNos = append(curNos, ln)
 		}
 	}
 	if inBlock {
-		blocks = append(blocks, dedent(cur))
+		blocks = append(blocks, block{lines: dedent(cur), lineNos: curNos})
 	}
 	return blocks
 }
@@ -156,11 +180,11 @@ func dedent(lines []string) []string {
 // sections: a line starting with a recognized tag token opens a new
 // section; every other line (outside a fenced code block) belongs to
 // whichever section was opened last.
-func parseSections(lines []string) []rawSection {
+func parseSections(lines []string, lineNos []int) []rawSection {
 	var sections []rawSection
 	inFence := false
 
-	for _, l := range lines {
+	for i, l := range lines {
 		trimmedLeft := strings.TrimLeft(l, " \t")
 		if strings.HasPrefix(trimmedLeft, "```") {
 			inFence = !inFence
@@ -169,7 +193,7 @@ func parseSections(lines []string) []rawSection {
 		}
 		if !inFence {
 			if tag, rest, ok := matchTag(l); ok {
-				sections = append(sections, rawSection{Tag: tag, Lines: []string{rest}})
+				sections = append(sections, rawSection{Tag: tag, Lines: []string{rest}, Line: lineNos[i]})
 				continue
 			}
 		}
@@ -216,6 +240,7 @@ type blockData struct {
 	audienceRaw []string
 	changelog   []ChangelogEntry
 	doc         string
+	defineLine  int
 }
 
 // semanticize walks a block's mechanically-parsed sections and applies the
@@ -242,6 +267,7 @@ func semanticize(sections []rawSection) (blockData, error) {
 				return blockData{}, err
 			}
 			bd.name, bd.versionRaw = name, version
+			bd.defineLine = s.Line
 			i++
 		case "name":
 			bd.displayName = joinNonEmpty(bd.displayName, trimBlock(join(s.Lines)))

@@ -3,14 +3,16 @@
 package model
 
 // @docsweb
-// @define model v0.1.0
+// @define model v0.2.0
 // @name Model
 // @summary
 // Core domain types: exact SemVer versions, target references, and the
 // fully-merged Target representation every other package builds on.
 // @audience dev
 // @changelog
-// Initial documentation.
+// Target now carries DefineLine, the source line number of its @define -
+// used to attribute a version bump to whoever last changed that line via
+// git blame (see internal/vcs). Non-breaking addition.
 // @doc
 // # Model
 //

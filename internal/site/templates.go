@@ -93,7 +93,7 @@ var shellTmpl = template.Must(template.New("shell").Parse(`{{define "shell"}}<!d
 
 var targetTmpl = template.Must(template.New("target").Parse(`
 <h1>{{.DisplayName}}</h1>
-<p class="meta">Scope: {{.Scope}} &middot; Version: {{.Version}} &middot; Audience: {{.Audiences}}</p>
+<p class="meta">Scope: {{.Scope}} &middot; Version: {{.Version}} &middot; Audience: {{.Audiences}}{{if .Author}} &middot; Last bumped by {{.Author}}{{end}}</p>
 
 {{if .HasSummary}}<section class="summary">{{.SummaryHTML}}</section>{{end}}
 

@@ -43,6 +43,12 @@ type Target struct {
 	// SourceFiles lists every file (relative to the scope root) that
 	// contributed to this target, in the order they were merged.
 	SourceFiles []string
+
+	// DefineLine is the 1-based line number, within SourceFiles[0], of this
+	// target's @define line - the line that names its current version.
+	// Used to attribute a version bump to whoever last changed that line
+	// (git blame), per internal/vcs.
+	DefineLine int
 }
 
 // Key returns the scope+name identity of the target (ignoring version).

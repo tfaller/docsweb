@@ -4,19 +4,20 @@
 package site
 
 // @docsweb
-// @define site v0.2.0
+// @define site v0.3.0
 // @name Site
 // @summary
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.2.0
-// @uses model@v0.1.0
+// @uses build@v0.3.0
+// @uses model@v0.2.0
 // @audience dev
 // @changelog
-// Target pages now render a "Used by" section (the reverse of `@uses`)
-// listing every target that depends on this one, backed by
-// [build.ComputeUsedBy](@link:build@v0.2.0). Non-breaking addition.
+// Target pages now show who last bumped the current version, per
+// [build.RenderedTarget.Author](@link:build@v0.3.0) - omitted when unknown
+// (not a git repository, or the version-bumping line couldn't be
+// git-blamed). Non-breaking addition.
 // @doc
 // # Site
 //
@@ -127,6 +128,7 @@ type targetPageData struct {
 	Scope       string
 	Version     string
 	Audiences   string
+	Author      string
 	HasSummary  bool
 	SummaryHTML template.HTML
 	DocHTML     template.HTML
@@ -144,6 +146,7 @@ func writeTargetPage(outDir string, rt *build.RenderedTarget, byKey map[string]*
 		Scope:       scopeLabel(t.Scope),
 		Version:     t.Version.String(),
 		Audiences:   audienceLabel(t.Audiences),
+		Author:      rt.Author,
 		DocHTML:     template.HTML(rt.DocHTML), //nolint:gosec // pre-rendered, trusted HTML from internal/build
 	}
 	if strings.TrimSpace(rt.SummaryHTML) != "" {

@@ -39,6 +39,7 @@ func TestParseSourceReadmeExample(t *testing.T) {
 	assert.Equal(t, []string{"bla.bla.x@v1.0.0", "xxx@v2.1.0"}, tgt.UsesRaw)
 	assert.Equal(t, []string{"dev, tester, user"}, tgt.AudienceRaw)
 	assert.Equal(t, "This is really important. Document with markdown.", tgt.Doc)
+	assert.Equal(t, 4, tgt.DefineLine)
 
 	require.Len(t, tgt.Changelog, 1)
 	assert.Equal(t, "user", tgt.Changelog[0].AudienceRaw)
@@ -75,9 +76,11 @@ func TestParseSourceMultipleTargetsAndConcatenation(t *testing.T) {
 
 	assert.Equal(t, "first", targets[0].Name)
 	assert.Equal(t, "First target doc.\n\nMore doc for first target, from a second comment.", targets[0].Doc)
+	assert.Equal(t, 4, targets[0].DefineLine)
 
 	assert.Equal(t, "second", targets[1].Name)
 	assert.Equal(t, "Second target doc.", targets[1].Doc)
+	assert.Equal(t, 18, targets[1].DefineLine)
 }
 
 func TestParseSourceFirstBlockWithoutDefineErrors(t *testing.T) {

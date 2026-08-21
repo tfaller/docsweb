@@ -78,6 +78,7 @@ func buildResult() *build.Result {
 					Use:  model.TargetRef{Scope: "libs.util", Name: "helper", Version: v("v1.0.0")},
 				},
 			},
+			Author: "Alice <alice@example.com>",
 		},
 		{
 			Target:  lib2,
@@ -133,6 +134,9 @@ func TestGenerate_TargetPages(t *testing.T) {
 	assert.Contains(t, app, "v1.0.0")
 	assert.Contains(t, app, "App summary HTML")
 	assert.Contains(t, app, "App documentation body.")
+	// "app" has no Author (RenderedTarget.Author left empty), so the
+	// "Last bumped by" meta fragment must not appear on its page.
+	assert.NotContains(t, app, "Last bumped by")
 	// Cross-target @uses link to the nested "helper" target.
 	assert.Contains(t, app, `href="libs/util/helper.html"`)
 	assert.Contains(t, app, "libs.util.helper@v1.0.0")
@@ -151,6 +155,7 @@ func TestGenerate_TargetPages(t *testing.T) {
 	assert.Contains(t, helper, "Helper documentation body.")
 	assert.Contains(t, helper, "Rewrote internals.")
 	assert.Contains(t, helper, "dev") // changelog audience shown
+	assert.Contains(t, helper, "Last bumped by Alice &lt;alice@example.com&gt;")
 	// "Used by" section: linked back to the dependant's own page.
 	assert.Contains(t, helper, "Used by")
 	assert.Contains(t, helper, `href="../../app.html"`)

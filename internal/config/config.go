@@ -9,7 +9,7 @@ package config
 // @summary
 // Loads and validates .docsweb.yaml: declared audiences (with combine),
 // scopes (local or remote), and repo-wide ignore rules.
-// @uses model@v0.1.0
+// @uses model@v0.2.0
 // @audience dev
 // @changelog
 // Initial documentation.

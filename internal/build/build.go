@@ -1,22 +1,25 @@
 package build
 
 // @docsweb
-// @define build v0.2.0
+// @define build v0.3.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: collect every scope's targets,
 // validate and classify @uses references, resolve @anchor:/@link:
 // destinations, and render every target's Markdown to HTML.
-// @uses collect@v0.1.0
+// @uses collect@v0.2.0
 // @uses config@v0.1.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.1.0
-// @uses model@v0.1.0
+// @uses model@v0.2.0
+// @uses vcs@v0.1.0
 // @audience dev
 // @changelog
-// Added `ComputeUsedBy` and `RenderedTarget.UsedBy`: a reverse index of
-// every target's `@uses`, so a target's page can show which other targets
-// depend on it. Non-breaking addition.
+// Every rendered target now carries an `Author` - who last bumped its
+// version, per git blame against HEAD's committed content, via the new
+// [vcs](@link:vcs@v0.1.0) package. Best-effort: "" if the build isn't
+// running inside a git repository, or the version-bumping line can't be
+// placed in the committed blob. Non-breaking addition.
 // @doc
 // # Build
 //
@@ -68,6 +71,7 @@ import (
 	"github.com/tfaller/docsweb/internal/ignore"
 	"github.com/tfaller/docsweb/internal/mdlink"
 	"github.com/tfaller/docsweb/internal/model"
+	"github.com/tfaller/docsweb/internal/vcs"
 )
 
 // Options configures a full docsweb build.
@@ -98,6 +102,13 @@ type RenderedTarget struct {
 	// UsedBy lists every other target whose @uses references this one -
 	// the reverse of Target.Uses. See ComputeUsedBy.
 	UsedBy []UsedByRef
+	// Author is who last bumped this target's version, per git blame
+	// against HEAD's committed content (see internal/vcs): "Name <email>",
+	// or "" if unknown - the build isn't running inside a git repository,
+	// the defining file isn't tracked yet, or its @define line couldn't be
+	// matched in the committed blob. Best-effort informational metadata,
+	// never a hard build requirement.
+	Author string
 }
 
 // Result is everything internal/site needs to render the static output.
@@ -134,18 +145,24 @@ func Run(opts Options) (*Result, error) {
 	reg := collect.NewRegistry()
 	matcher := ignore.Compile(cfg.Ignore)
 
+	// scopeRoots maps every scope name (including the root scope) to its
+	// absolute directory, reused below to locate each target's defining
+	// file for git-blame attribution.
+	scopeRoots := map[string]string{opts.RootScope: rootDir}
 	excludes := make([]string, 0, len(cfg.Scopes))
 	for name, sc := range cfg.Scopes {
 		if sc.Remote() {
 			return nil, fmt.Errorf("scope %q: remote scopes are not supported by the POC (see README.md \"After POC\")", name)
 		}
-		excludes = append(excludes, filepath.Join(rootDir, sc.Path))
+		scopeRoot := filepath.Join(rootDir, sc.Path)
+		scopeRoots[name] = scopeRoot
+		excludes = append(excludes, scopeRoot)
 	}
 	if err := reg.AddScope(collect.Options{Scope: opts.RootScope, Root: rootDir, Exclude: excludes, Ignore: matcher, IgnoreBase: rootDir}); err != nil {
 		return nil, err
 	}
-	for name, sc := range cfg.Scopes {
-		if err := reg.AddScope(collect.Options{Scope: name, Root: filepath.Join(rootDir, sc.Path), Ignore: matcher, IgnoreBase: rootDir}); err != nil {
+	for name := range cfg.Scopes {
+		if err := reg.AddScope(collect.Options{Scope: name, Root: scopeRoots[name], Ignore: matcher, IgnoreBase: rootDir}); err != nil {
 			return nil, err
 		}
 	}
@@ -166,9 +183,17 @@ func Run(opts Options) (*Result, error) {
 	resolver := &registryResolver{reg: reg, anchors: anchors}
 	usedBy := ComputeUsedBy(reg)
 
+	// git-blame attribution is best-effort: a build outside of a git
+	// checkout (or one that hits some other VCS error) simply produces
+	// targets with no Author, rather than failing.
+	repo, _ := vcs.Open(rootDir)
+
 	rendered := make([]RenderedTarget, 0, len(reg.Targets()))
 	for _, t := range reg.Targets() {
 		rt := RenderedTarget{Target: t, UsedBy: usedBy[t.Key()]}
+		if repo != nil {
+			rt.Author = blameAuthor(repo, scopeRoots[t.Scope], t)
+		}
 
 		rt.SummaryHTML, err = mdlink.RenderDoc(t.Summary, t.Scope, resolver)
 		if err != nil {
@@ -190,6 +215,27 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return &Result{Targets: rendered, Issues: issues}, nil
+}
+
+// blameAuthor looks up who last touched t's @define line - the line naming
+// its current version - via git blame against HEAD. The line is found by
+// its content ("@define <name> <version>", exactly what @define's grammar
+// requires), built from t.Name/t.Version already in memory, rather than by
+// re-reading the defining file just to reproduce its exact text. Returns ""
+// (never an error) if that isn't knowable: no SourceFiles/DefineLine
+// recorded, or repo.BlameAuthor itself can't place the line (untracked
+// file, no matching line in the committed blob).
+func blameAuthor(repo *vcs.Repository, scopeRoot string, t *model.Target) string {
+	if t.DefineLine <= 0 || len(t.SourceFiles) == 0 {
+		return ""
+	}
+	absPath := filepath.Join(scopeRoot, t.SourceFiles[0])
+	contains := "@define " + t.Name + " " + t.Version.String()
+	author, ok, err := repo.BlameAuthor(absPath, t.DefineLine, contains)
+	if err != nil || !ok {
+		return ""
+	}
+	return author.String()
 }
 
 // collectAllAnchors gathers every target's declared anchors up front, across

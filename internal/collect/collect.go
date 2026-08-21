@@ -4,18 +4,20 @@
 package collect
 
 // @docsweb
-// @define collect v0.1.0
+// @define collect v0.2.0
 // @name Collect
 // @summary
 // Walks a scope's source tree, extracts docsweb blocks, and builds a
 // validated Target registry - enforcing that a target name is unique
 // within its scope.
-// @uses annotation@v0.1.0
+// @uses annotation@v0.2.0
 // @uses ignore@v0.1.0
-// @uses model@v0.1.0
+// @uses model@v0.2.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// Target.DefineLine is now populated from annotation.TargetDoc.DefineLine,
+// so downstream git-blame attribution (internal/vcs) can find the source
+// line that introduced a target's current version. Non-breaking addition.
 // @doc
 // # Collect
 //
@@ -259,6 +261,7 @@ func (r *Registry) addTargetDoc(scope, file string, doc annotation.TargetDoc) er
 		Changelog:   changelog,
 		Doc:         doc.Doc,
 		SourceFiles: []string{file},
+		DefineLine:  doc.DefineLine,
 	}
 	r.targets[key] = t
 	r.order = append(r.order, key)

@@ -10,8 +10,8 @@ package main
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.1.0
-// @uses site@v0.1.0
+// @uses build@v0.3.0
+// @uses site@v0.3.0
 // @audience dev, user
 // @changelog
 // Initial documentation - this page was itself produced by running
