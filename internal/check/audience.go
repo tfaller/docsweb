@@ -1,4 +1,4 @@
-package build
+package check
 
 import (
 	"fmt"
@@ -8,13 +8,16 @@ import (
 	"github.com/tfaller/docsweb/internal/model"
 )
 
-// remapScopeAudiences applies README.md's "Scopes" audience-mapping rule to
-// every target: a root-scope target's audience must itself be declared in
-// the root config's audience: map. A non-root-scope target's audience with
-// the same name as a declared audience auto-maps to itself; any other name
-// must be listed in that scope's audienceMap. Either way, an undeclared
-// name is a hard error. The reserved "all" audience always passes through
-// unmapped.
+// checkAudiences applies README.md's "Scopes" audience-mapping rule to every
+// target: a root-scope target's audience must itself be declared in the
+// root config's audience: map. A non-root-scope target's audience with the
+// same name as a declared audience auto-maps to itself; any other name must
+// be listed in that scope's audienceMap. Either way, an undeclared name is a
+// hard error. The reserved "all" audience always passes through unmapped.
+func checkAudiences(ctx *context) error {
+	return remapScopeAudiences(ctx.cfg, ctx.registry)
+}
+
 func remapScopeAudiences(cfg *config.Config, reg *collect.Registry) error {
 	for _, t := range reg.Targets() {
 		isRoot := t.ConfigScope == cfg.Name

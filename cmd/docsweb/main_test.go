@@ -47,3 +47,34 @@ func TestRunBuildOwnRepo(t *testing.T) {
 	})
 	assert.NoError(t, err)
 }
+
+func TestRunCheckMissingConfig(t *testing.T) {
+	err := run([]string{"check", "--config", "does/not/exist.yaml"})
+	assert.Error(t, err)
+}
+
+func TestRunCheckEndToEnd(t *testing.T) {
+	err := run([]string{
+		"check",
+		"--config", "../../internal/build/testdata/integration/.docsweb.yaml",
+	})
+	assert.NoError(t, err)
+}
+
+// TestRunCheckCatchesBrokenLink confirms "check" fails on data a real build
+// would also reject - an unresolvable @link - without ever needing to run a
+// build or write anything to disk.
+func TestRunCheckCatchesBrokenLink(t *testing.T) {
+	err := run([]string{
+		"check",
+		"--config", "../../internal/check/testdata/links_bad/.docsweb.yaml",
+	})
+	assert.ErrorContains(t, err, "does not resolve to an existing target")
+}
+
+// TestRunCheckOwnRepo mirrors TestRunBuildOwnRepo: docsweb's own root
+// .docsweb.yaml must also pass "docsweb check" cleanly.
+func TestRunCheckOwnRepo(t *testing.T) {
+	err := run([]string{"check", "--config", "../../.docsweb.yaml"})
+	assert.NoError(t, err)
+}

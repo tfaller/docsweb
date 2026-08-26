@@ -1,24 +1,27 @@
-// Command docsweb is the docsweb POC's CLI. Its only command, "build", runs
-// a full build: collect targets, validate & classify @uses references,
-// resolve @anchor:/@link: destinations, and render the static HTML site.
+// Command docsweb is the docsweb POC's CLI. "build" runs a full build:
+// collect targets, validate & classify @uses references, resolve
+// @anchor:/@link: destinations, and render the static HTML site. "check"
+// runs the same validation without rendering anything, for local
+// development and CI pipelines.
 package main
 
 // @docsweb
-// @define docsweb v0.2.0
+// @define docsweb v0.3.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.6.0
+// @uses build@v0.7.0
+// @uses check@v0.1.0
 // @uses site@v0.3.0
 // @audience dev, user
 // @changelog
-// The `--scope` flag is removed: the root scope's name now comes from the
-// root `.docsweb.yaml`'s own required, self-declared `name:` (see
-// [build](@link:build@v0.4.0)) - this repo's own config now declares
-// `name: docsweb`, so this very site now lives under a `docsweb/` prefix.
-// `--scope` is no longer a recognized flag.
+// New `docsweb check` command: runs the same validation `docsweb build`
+// does - config/scope collection,
+// [audience/uses/anchor/link checks](@link:check@v0.1.0) - without
+// rendering anything, for local development and CI pipelines. Non-breaking
+// addition; `docsweb build`'s behavior is unchanged.
 // @doc
 // # docsweb
 //
@@ -42,6 +45,18 @@ package main
 // root scope itself - there is no unscoped default. `--out` is the output
 // directory for the generated site (default: `dist`).
 //
+// ## Checking without building
+//
+// ```
+// docsweb check [--config .docsweb.yaml]
+// ```
+//
+// `check` runs every validation [build](@link:build@v0.7.0) does - the
+// same [checks](@link:check@v0.1.0) - but stops there: nothing is ever
+// rendered to HTML or written to disk, and there is no `--out` flag. Use
+// it as a fast local/CI gate to confirm a change hasn't broken anything
+// before running a real build.
+//
 // ## This project, dogfed
 //
 // This very site is docsweb documenting itself: every package under
@@ -61,6 +76,7 @@ import (
 	"os"
 
 	"github.com/tfaller/docsweb/internal/build"
+	"github.com/tfaller/docsweb/internal/check"
 	"github.com/tfaller/docsweb/internal/site"
 )
 
@@ -73,14 +89,16 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("expected a command, e.g. \"docsweb build\"")
+		return fmt.Errorf(`expected a command, e.g. "docsweb build" or "docsweb check"`)
 	}
 
 	switch args[0] {
 	case "build":
 		return runBuild(args[1:])
+	case "check":
+		return runCheck(args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (only \"build\" is supported)", args[0])
+		return fmt.Errorf(`unknown command %q (only "build" and "check" are supported)`, args[0])
 	}
 }
 
@@ -103,5 +121,27 @@ func runBuild(args []string) error {
 
 	fmt.Printf("docsweb: built %d target(s), %d outdated use(s), into %s\n",
 		len(result.Targets), len(result.Issues), *outDir)
+	return nil
+}
+
+// runCheck runs the same validation runBuild does, without ever rendering a
+// target's Markdown to HTML or writing anything to disk - see
+// internal/check. Intended for local development and CI pipelines that just
+// want to confirm a change hasn't broken anything, without paying for (or
+// needing to point at an output directory for) a full build.
+func runCheck(args []string) error {
+	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	configPath := fs.String("config", ".docsweb.yaml", "path to the root .docsweb.yaml")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	result, err := check.Run(check.Options{ConfigPath: *configPath})
+	if err != nil {
+		return fmt.Errorf("check: %w", err)
+	}
+
+	fmt.Printf("docsweb: checked %d target(s), %d outdated use(s), OK\n",
+		len(result.Registry.Targets()), len(result.Issues))
 	return nil
 }

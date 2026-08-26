@@ -1,68 +1,46 @@
 package build
 
 // @docsweb
-// @define build v0.6.0
+// @define build v0.7.0
 // @name Build
 // @summary
-// Orchestrates a full docsweb build: collect every scope's targets,
-// validate and classify @uses references, resolve @anchor:/@link:
-// destinations, and render every target's Markdown to HTML.
-// @uses collect@v0.3.0
-// @uses config@v0.2.0
-// @uses ignore@v0.1.0
+// Orchestrates a full docsweb build: run every check, then render every
+// target's Markdown to HTML and attribute its current version to a git
+// blame author.
+// @uses check@v0.1.0
 // @uses mdlink@v0.1.0
 // @uses model@v0.3.0
 // @uses vcs@v0.1.0
 // @audience dev
 // @changelog
-// Breaking: a root-scope target's (or changelog entry's) `@audience` name
-// must now itself be declared in the root config's `audience:` map -
-// previously any alphanumeric name was accepted freely, with only
-// referenced-scope audiences checked against it. `remapScopeAudiences` no
-// longer skips root-scope targets; an undeclared name is now a hard build
-// error ("audience ... is not declared in this config's audience: map"),
-// matching how referenced-scope audiences were already enforced. The
-// reserved `all` audience still always passes through unchecked. A config
-// that used root-scope `@audience` names it never declared now fails to
-// build until it adds them to `audience:`.
+// Breaking: validation - scope collection, `@audience` mapping, `@uses`
+// resolution, `@anchor` uniqueness - is no longer implemented directly in
+// this package. It now lives in [check](@link:check@v0.1.0), reused
+// as-is by both `Run` here and the new `docsweb check` command, so the two
+// never validate a config two different ways. `ResolveUses`,
+// `ComputeUsedBy`, `UsageIssue`, and `UsedByRef` moved to that package
+// (`check.ResolveUses`, etc.) - code calling the old `build`-scoped names
+// must update its imports. `Run`'s behavior and `Options`/`Result` are
+// otherwise unchanged.
 // @doc
 // # Build
 //
 // `Run` is the whole pipeline in one call:
 //
-// 1. Load `.docsweb.yaml` and compile its `ignore:` list via
-//    [ignore](@link:ignore@v0.1.0). The root scope's own name is this
-//    config's self-declared `Name` - required, no implicit default.
-// 2. Verify and walk the root scope plus every declared referenced scope
-//    with [collect](@link:collect@v0.1.0): each referenced scope's own
-//    `.docsweb.yaml` is loaded and its `Name` checked against the parent's
-//    `scope:` key - see [config](@link:config@v0.2.0)'s "Scopes" section -
-//    before its subtree is excluded from the root walk so nothing is
-//    scanned twice. A remote (`git:`) scope is a hard error - out of scope
-//    for this POC.
-// 3. Validate every target's `@audience` names against
-//    [config](@link:config@v0.2.0)'s declared `audience:` map: a root-scope
-//    target's audience must itself be declared; a non-root-scope target's
-//    audience goes through
-//    [referenced-scope audience mapping](@link:config@v0.2.0#audiencemap).
-//    Either way, an undeclared audience name is a hard build error.
-// 4. `ResolveUses` validates that every `@uses` lands on an existing
-//    target, and classifies each one by
-//    [DiffKind](@link:model@v0.1.0#diffkind) into an
-//    [outdated use](@anchor:outdated): `DiffMajor` is reported as
-//    breaking, `DiffMinor` as informational, `DiffPatch`/`DiffNone` are
-//    dropped entirely.
-// 5. Collect every target's declared anchors up front (anchor names must
-//    be unique across a target's `@summary`+`@doc`+`@changelog` pieces
-//    combined), so a `@link ...#anchor` can be resolved regardless of
-//    which target - referencing or referenced - was scanned first.
-// 6. Render every target's Markdown pieces to HTML via
+// 1. [check.RunForBuild](@link:check@v0.1.0) does everything needed to
+//    confirm every target is in shape to render correctly: load
+//    `.docsweb.yaml`, verify and walk the root scope plus every declared
+//    referenced scope, validate `@audience` names, validate `@uses`
+//    references (classifying each by
+//    [DiffKind](@link:model@v0.1.0#diffkind) into an [outdated use](@anchor:outdated)),
+//    collect every target's anchors, and validate every `@link`
+//    reference resolves - all without rendering a single piece of
+//    Markdown to HTML.
+// 2. Git-blame attribution (best-effort, see `blameAuthor`) looks up who
+//    last touched each target's `@define` line.
+// 3. Render every target's Markdown pieces to HTML via
 //    [mdlink](@link:mdlink@v0.1.0#resolver), backed by a `Resolver` over
-//    the collected registry and its anchor sets.
-// 7. `ComputeUsedBy` inverts every target's `@uses` list into a "Used by"
-//    index keyed by the referenced target - `@uses` already implies its
-//    own reverse edge, so no separate annotation is needed to declare a
-//    dependant.
+//    the checked registry and its anchor sets.
 //
 // `TargetURL` is the single canonical URL scheme every downstream
 // consumer (currently just the static site generator) uses to turn a
@@ -78,9 +56,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tfaller/docsweb/internal/check"
 	"github.com/tfaller/docsweb/internal/collect"
-	"github.com/tfaller/docsweb/internal/config"
-	"github.com/tfaller/docsweb/internal/ignore"
 	"github.com/tfaller/docsweb/internal/mdlink"
 	"github.com/tfaller/docsweb/internal/model"
 	"github.com/tfaller/docsweb/internal/vcs"
@@ -110,8 +87,8 @@ type RenderedTarget struct {
 	DocHTML       string
 	ChangelogHTML []ChangelogHTML
 	// UsedBy lists every other target whose @uses references this one -
-	// the reverse of Target.Uses. See ComputeUsedBy.
-	UsedBy []UsedByRef
+	// the reverse of Target.Uses. See check.ComputeUsedBy.
+	UsedBy []check.UsedByRef
 	// Author is who last bumped this target's version, per git blame
 	// against HEAD's committed content (see internal/vcs): "Name <email>",
 	// or "" if unknown - the build isn't running inside a git repository,
@@ -124,7 +101,7 @@ type RenderedTarget struct {
 // Result is everything internal/site needs to render the static output.
 type Result struct {
 	Targets []RenderedTarget
-	Issues  []UsageIssue
+	Issues  []check.UsageIssue
 }
 
 // TargetURL returns the site-relative URL (from the output root) of ref's
@@ -149,86 +126,31 @@ func RelLink(fromURL, toURL string) string {
 	return strings.Repeat("../", depth) + toURL
 }
 
-// Run executes a full build: load config, collect every scope's targets,
-// validate & classify @uses references, resolve @anchor:/@link:
-// destinations, and render every target's Markdown to HTML.
+// Run executes a full build: run every check (see internal/check), attribute
+// each target's current version to a git blame author, and render every
+// target's Markdown to HTML.
 func Run(opts Options) (*Result, error) {
-	cfg, err := config.Load(opts.ConfigPath)
+	chk, err := check.RunForBuild(check.Options{ConfigPath: opts.ConfigPath})
 	if err != nil {
 		return nil, err
 	}
-	rootDir, err := filepath.Abs(filepath.Dir(opts.ConfigPath))
-	if err != nil {
-		return nil, err
-	}
-
-	reg := collect.NewRegistry()
-	matcher := ignore.Compile(cfg.Ignore)
-
-	// scopeRoots maps every scope name (including the root scope) to its
-	// absolute directory, reused below to locate each target's defining
-	// file for git-blame attribution.
-	scopeRoots := map[string]string{cfg.Name: rootDir}
-	excludes := make([]string, 0, len(cfg.Scopes))
-	for name, sc := range cfg.Scopes {
-		if sc.Remote() {
-			return nil, fmt.Errorf("scope %q: remote scopes are not supported by the POC (see README.md \"After POC\")", name)
-		}
-		if name == cfg.Name {
-			return nil, fmt.Errorf("scope %q: collides with the root scope's own name", name)
-		}
-		scopeRoot := filepath.Join(rootDir, sc.Path)
-		refConfigPath := filepath.Join(scopeRoot, ".docsweb.yaml")
-		refCfg, err := config.Load(refConfigPath)
-		if err != nil {
-			return nil, fmt.Errorf("scope %q: expected referenced scope config at %s: %w", name, refConfigPath, err)
-		}
-		if refCfg.Name != name {
-			return nil, fmt.Errorf("scope %q: %s declares name %q, expected %q", name, refConfigPath, refCfg.Name, name)
-		}
-		scopeRoots[name] = scopeRoot
-		excludes = append(excludes, scopeRoot)
-	}
-	if err := reg.AddScope(collect.Options{Scope: cfg.Name, Root: rootDir, Exclude: excludes, Ignore: matcher, IgnoreBase: rootDir}); err != nil {
-		return nil, err
-	}
-	for name := range cfg.Scopes {
-		if err := reg.AddScope(collect.Options{Scope: name, Root: scopeRoots[name], Ignore: matcher, IgnoreBase: rootDir}); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := remapScopeAudiences(cfg, reg); err != nil {
-		return nil, err
-	}
-
-	issues, err := ResolveUses(reg)
-	if err != nil {
-		return nil, err
-	}
-
-	anchors, err := collectAllAnchors(reg)
-	if err != nil {
-		return nil, err
-	}
-	usedBy := ComputeUsedBy(reg)
 
 	// git-blame attribution is best-effort: a build outside of a git
 	// checkout (or one that hits some other VCS error) simply produces
 	// targets with no Author, rather than failing.
-	repo, _ := vcs.Open(rootDir)
+	repo, _ := vcs.Open(chk.RootDir)
 
-	rendered := make([]RenderedTarget, 0, len(reg.Targets()))
-	for _, t := range reg.Targets() {
-		rt := RenderedTarget{Target: t, UsedBy: usedBy[t.Key()]}
+	rendered := make([]RenderedTarget, 0, len(chk.Registry.Targets()))
+	for _, t := range chk.Registry.Targets() {
+		rt := RenderedTarget{Target: t, UsedBy: chk.UsedBy[t.Key()]}
 		if repo != nil {
-			rt.Author = blameAuthor(repo, scopeRoots[t.ConfigScope], t)
+			rt.Author = blameAuthor(repo, chk.ScopeRoots[t.ConfigScope], t)
 		}
 
 		// Resolved @link URLs must be relative to this target's own page, so
 		// a fresh resolver is built per target with its page URL as the
 		// relative-link origin (see registryResolver.ResolveTarget).
-		resolver := &registryResolver{reg: reg, anchors: anchors, fromURL: TargetURL(t.Ref())}
+		resolver := &registryResolver{reg: chk.Registry, anchors: chk.Anchors, fromURL: TargetURL(t.Ref())}
 
 		rt.SummaryHTML, err = mdlink.RenderDoc(t.Summary, t.Scope, resolver)
 		if err != nil {
@@ -249,7 +171,7 @@ func Run(opts Options) (*Result, error) {
 		rendered = append(rendered, rt)
 	}
 
-	return &Result{Targets: rendered, Issues: issues}, nil
+	return &Result{Targets: rendered, Issues: chk.Issues}, nil
 }
 
 // blameAuthor looks up who last touched t's @define line - the line naming
@@ -271,39 +193,6 @@ func blameAuthor(repo *vcs.Repository, scopeRoot string, t *model.Target) string
 		return ""
 	}
 	return author.String()
-}
-
-// collectAllAnchors gathers every target's declared anchors up front, across
-// all of its Markdown pieces, so @link:...#anchor fragments can be validated
-// and resolved regardless of definition order across targets/files.
-func collectAllAnchors(reg *collect.Registry) (map[string]map[string]bool, error) {
-	out := make(map[string]map[string]bool)
-	for _, t := range reg.Targets() {
-		set := map[string]bool{}
-		pieces := append([]string{t.Summary, t.Doc}, changelogBodies(t)...)
-		for _, p := range pieces {
-			names, err := mdlink.CollectAnchors(p)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", t.Key(), err)
-			}
-			for _, n := range names {
-				if set[n] {
-					return nil, fmt.Errorf("%s: duplicate anchor %q", t.Key(), n)
-				}
-				set[n] = true
-			}
-		}
-		out[t.Key()] = set
-	}
-	return out, nil
-}
-
-func changelogBodies(t *model.Target) []string {
-	out := make([]string, len(t.Changelog))
-	for i, c := range t.Changelog {
-		out[i] = c.Body
-	}
-	return out
 }
 
 // registryResolver implements mdlink.Resolver against a collected target

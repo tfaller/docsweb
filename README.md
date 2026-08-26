@@ -103,7 +103,7 @@ Building the documentation requires reading every file anyway, so there is no se
 
 For the POC, the output is one page per target, plus one dedicated page for outdated uses. That page links to both the referencing target and the target's new version, showing the old and the new version and the changelog entries in between.
 
-`docsweb build` is the primary command to run a build.
+`docsweb build` is the primary command to run a build. `docsweb check` runs the same validation - config/scope collection, `@audience`/`@uses`/`@anchor`/`@link` checks - without rendering anything, so it can be used as a fast local/CI gate before a real build.
 
 ## Version Control
 

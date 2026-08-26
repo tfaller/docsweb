@@ -10,7 +10,7 @@ package site
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.6.0
+// @uses build@v0.7.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
@@ -28,7 +28,7 @@ package site
 //   [build.TargetURL](@link:build@v0.1.0)'s path: display name, version,
 //   audiences, rendered summary/doc, its resolved `@uses` list, a "Used
 //   by" list of every target that depends on it (the reverse of `@uses`,
-//   computed by `build.ComputeUsedBy` - no separate annotation needed),
+//   computed by `check.ComputeUsedBy` - no separate annotation needed),
 //   and its rendered changelog entries.
 // - **One [outdated-uses page](@link:build@v0.1.0#outdated)**
 //   (`_outdated.html`), grouping every major (breaking) and minor

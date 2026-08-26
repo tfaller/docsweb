@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tfaller/docsweb/internal/build"
+	"github.com/tfaller/docsweb/internal/check"
 	"github.com/tfaller/docsweb/internal/model"
 	"github.com/tfaller/docsweb/internal/site"
 )
@@ -72,7 +73,7 @@ func buildResult() *build.Result {
 				{Audiences: []model.Audience{"dev"}, HTML: "<p>Rewrote internals.</p>"},
 			},
 			// "app" @uses "helper" -> the reverse edge.
-			UsedBy: []build.UsedByRef{
+			UsedBy: []check.UsedByRef{
 				{
 					User: app.Ref(),
 					Use:  model.TargetRef{Scope: "libs.util", Name: "helper", Version: v("v1.0.0")},
@@ -87,7 +88,7 @@ func buildResult() *build.Result {
 				{HTML: "<p>Added a new helper function.</p>"},
 			},
 			// "app" @uses "lib2" -> the reverse edge.
-			UsedBy: []build.UsedByRef{
+			UsedBy: []check.UsedByRef{
 				{
 					User: app.Ref(),
 					Use:  model.TargetRef{Scope: "", Name: "lib2", Version: v("v1.0.0")},
@@ -96,7 +97,7 @@ func buildResult() *build.Result {
 		},
 	}
 
-	issues := []build.UsageIssue{
+	issues := []check.UsageIssue{
 		{
 			User:    app,
 			Use:     model.TargetRef{Scope: "libs.util", Name: "helper", Version: v("v1.0.0")},

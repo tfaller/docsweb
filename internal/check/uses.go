@@ -1,7 +1,4 @@
-// Package build orchestrates a full docsweb build: collecting targets,
-// validating and resolving @uses/@link references, and rendering the
-// static site.
-package build
+package check
 
 import (
 	"fmt"
@@ -25,6 +22,19 @@ type UsageIssue struct {
 	// Kind is either model.DiffMajor (breaking) or model.DiffMinor
 	// (informational) - never DiffNone/DiffPatch.
 	Kind model.DiffKind
+}
+
+// checkUses validates that every target's @uses references an existing
+// target in the registry (a hard error otherwise, per README.md's "check
+// that all @link and @uses land at an existing target"), and populates
+// ctx.issues with every major/minor outdated usage.
+func checkUses(ctx *context) error {
+	issues, err := ResolveUses(ctx.registry)
+	if err != nil {
+		return err
+	}
+	ctx.issues = issues
+	return nil
 }
 
 // ResolveUses validates that every target's @uses references an existing
@@ -81,7 +91,9 @@ type UsedByRef struct {
 // index keyed by the referenced target's Key(), sorted deterministically by
 // dependant. Per README.md's "Usage graph" section @uses already implies its
 // own reverse edge, so this is derived straight from the registry - no
-// separate annotation is needed to declare a dependant.
+// separate annotation is needed to declare a dependant. Never errors, so it
+// is not itself a Check - it's derived once every check has already passed,
+// as part of assembling a Result.
 func ComputeUsedBy(reg *collect.Registry) map[string][]UsedByRef {
 	usedBy := make(map[string][]UsedByRef)
 	for _, t := range reg.Targets() {
