@@ -22,7 +22,7 @@ func TestRunFullIntegration(t *testing.T) {
 	app, ok := byKey["integration.app"]
 	require.True(t, ok)
 	assert.Equal(t, "The App", app.Target.DisplayName)
-	assert.Contains(t, app.DocHTML, `href="lib/helper.html"`)
+	assert.Contains(t, app.DocHTML, `href="../lib/helper.html"`)
 	assert.Contains(t, app.DocHTML, `id="top"`)
 
 	// "lib" is a referenced scope with its own self-declared name, so its

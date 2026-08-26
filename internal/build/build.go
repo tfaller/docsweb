@@ -1,7 +1,7 @@
 package build
 
 // @docsweb
-// @define build v0.4.0
+// @define build v0.5.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: collect every scope's targets,
@@ -15,16 +15,17 @@ package build
 // @uses vcs@v0.1.0
 // @audience dev
 // @changelog
-// The root scope's name is now [config](@link:config@v0.2.0)'s own
-// self-declared `Name`, not a caller-supplied option - `Options.RootScope`
-// is removed. Every declared referenced scope's own `.docsweb.yaml` is now
-// verified against the parent's `scope:` key before it's collected,
-// erroring if that config is missing or its `Name` doesn't match; a
-// referenced scope whose name collides with the root's own is also now a
-// hard error, where it previously silently overwrote the root's directory
-// mapping. `Options.RootScope` callers no longer compile, and a referenced
-// scope without a matching self-declared name now fails the build instead
-// of being collected under whatever name the parent chose.
+// Fixed: resolved `@link` destinations were the bare root-relative page
+// path (`TargetURL`'s own output, e.g. `lib/helper.html`), used directly as
+// an HTML href. That's only correct from a page sitting at the site root;
+// from any other page it resolves relative to the browser's current
+// directory, silently re-prefixing the destination with the referencing
+// page's own scope path. `@link` hrefs are now built with the new
+// `RelLink` (`"../"` repeated once per directory level the referencing
+// page is nested under, then the destination), matching how
+// [site](@link:site@v0.3.0) already links its "Uses"/"Used by" rows so the
+// two now agree. Non-breaking: output HTML changes, but no exported
+// signature does other than the new `RelLink` addition.
 // @doc
 // # Build
 //
@@ -136,6 +137,16 @@ func TargetURL(ref model.TargetRef) string {
 	return strings.ReplaceAll(ref.Scope, ".", "/") + "/" + ref.Name + ".html"
 }
 
+// RelLink computes a relative link from the page at fromURL to the page at
+// toURL, where both are root-relative URLs in TargetURL's scheme
+// (slash-separated, no "." or ".." segments). The result is simply "../"
+// repeated once per directory level fromURL is nested under, followed by
+// toURL.
+func RelLink(fromURL, toURL string) string {
+	depth := strings.Count(fromURL, "/")
+	return strings.Repeat("../", depth) + toURL
+}
+
 // Run executes a full build: load config, collect every scope's targets,
 // validate & classify @uses references, resolve @anchor:/@link:
 // destinations, and render every target's Markdown to HTML.
@@ -198,7 +209,6 @@ func Run(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolver := &registryResolver{reg: reg, anchors: anchors}
 	usedBy := ComputeUsedBy(reg)
 
 	// git-blame attribution is best-effort: a build outside of a git
@@ -212,6 +222,11 @@ func Run(opts Options) (*Result, error) {
 		if repo != nil {
 			rt.Author = blameAuthor(repo, scopeRoots[t.ConfigScope], t)
 		}
+
+		// Resolved @link URLs must be relative to this target's own page, so
+		// a fresh resolver is built per target with its page URL as the
+		// relative-link origin (see registryResolver.ResolveTarget).
+		resolver := &registryResolver{reg: reg, anchors: anchors, fromURL: TargetURL(t.Ref())}
 
 		rt.SummaryHTML, err = mdlink.RenderDoc(t.Summary, t.Scope, resolver)
 		if err != nil {
@@ -290,17 +305,21 @@ func changelogBodies(t *model.Target) []string {
 }
 
 // registryResolver implements mdlink.Resolver against a collected target
-// registry and its precomputed anchor sets.
+// registry and its precomputed anchor sets. It resolves @link references
+// into links relative to fromURL - the page of the target whose Markdown is
+// currently being rendered - via RelLink, since the resolved HTML is later
+// written verbatim to that page.
 type registryResolver struct {
 	reg     *collect.Registry
 	anchors map[string]map[string]bool
+	fromURL string
 }
 
 func (r *registryResolver) ResolveTarget(ref model.TargetRef) (string, bool) {
 	if _, ok := r.reg.Get(ref.Key()); !ok {
 		return "", false
 	}
-	return TargetURL(ref), true
+	return RelLink(r.fromURL, TargetURL(ref)), true
 }
 
 func (r *registryResolver) HasAnchor(ref model.TargetRef, anchor string) bool {

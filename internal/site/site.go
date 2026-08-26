@@ -10,7 +10,7 @@ package site
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.4.0
+// @uses build@v0.5.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
@@ -158,7 +158,7 @@ func writeTargetPage(outDir string, rt *build.RenderedTarget, byKey map[string]*
 		ur := useRef{Label: fmt.Sprintf("%s@%s", use.Key(), use.Version)}
 		if used, ok := byKey[use.Key()]; ok {
 			ur.Found = true
-			ur.URL = relLink(url, build.TargetURL(used.Target.Ref()))
+			ur.URL = build.RelLink(url, build.TargetURL(used.Target.Ref()))
 		} else {
 			// Unreachable in practice: build.Run's ResolveUses hard-errors
 			// before a Result with an unresolvable @uses is ever produced.
@@ -172,7 +172,7 @@ func writeTargetPage(outDir string, rt *build.RenderedTarget, byKey map[string]*
 	for _, ub := range rt.UsedBy {
 		data.UsedBy = append(data.UsedBy, usedByRef{
 			Label: fmt.Sprintf("%s@%s", ub.User.Key(), ub.User.Version),
-			URL:   relLink(url, build.TargetURL(ub.User)),
+			URL:   build.RelLink(url, build.TargetURL(ub.User)),
 		})
 	}
 
@@ -210,7 +210,7 @@ func writeOutdatedPage(outDir string, result *build.Result, byKey map[string]*bu
 	for _, issue := range result.Issues {
 		row := issueRow{
 			UserLabel:      issue.User.Key(),
-			UserURL:        relLink(outdatedURL, build.TargetURL(issue.User.Ref())),
+			UserURL:        build.RelLink(outdatedURL, build.TargetURL(issue.User.Ref())),
 			UseLabel:       fmt.Sprintf("%s@%s", issue.Use.Key(), issue.Use.Version),
 			OldVersion:     issue.Use.Version.String(),
 			CurrentVersion: issue.Current.String(),
@@ -218,7 +218,7 @@ func writeOutdatedPage(outDir string, result *build.Result, byKey map[string]*bu
 
 		if used, ok := byKey[issue.Use.Key()]; ok {
 			row.UseFound = true
-			row.UseURL = relLink(outdatedURL, build.TargetURL(used.Target.Ref()))
+			row.UseURL = build.RelLink(outdatedURL, build.TargetURL(used.Target.Ref()))
 			// Per PLAN.md assumption #4: no version history in the POC, so
 			// show the referenced target's *current* changelog entries as
 			// "what's changed since" rather than a synthesized range.
@@ -266,7 +266,7 @@ func writeIndexPage(outDir string, result *build.Result) error {
 		t := result.Targets[i].Target
 		label := fmt.Sprintf("%s (%s)", displayName(t), t.Version)
 		url := build.TargetURL(t.Ref())
-		groups[t.Scope] = append(groups[t.Scope], navLink{Label: label, URL: relLink(indexURL, url)})
+		groups[t.Scope] = append(groups[t.Scope], navLink{Label: label, URL: build.RelLink(indexURL, url)})
 	}
 
 	scopes := make([]string, 0, len(groups))
@@ -275,7 +275,7 @@ func writeIndexPage(outDir string, result *build.Result) error {
 	}
 	sort.Strings(scopes)
 
-	data := indexPageData{OutdatedLink: relLink(indexURL, outdatedURL)}
+	data := indexPageData{OutdatedLink: build.RelLink(indexURL, outdatedURL)}
 	for _, s := range scopes {
 		links := groups[s]
 		sort.Slice(links, func(i, j int) bool { return links[i].Label < links[j].Label })
@@ -323,16 +323,6 @@ func joinAudiences(auds []model.Audience) string {
 	return strings.Join(strs, ", ")
 }
 
-// relLink computes a relative link from the page at fromURL to the page at
-// toURL, where both are root-relative URLs in build.TargetURL's scheme
-// (slash-separated, no "." or ".." segments). The result is simply
-// "../" repeated once per directory level fromURL is nested under, followed
-// by toURL.
-func relLink(fromURL, toURL string) string {
-	depth := strings.Count(fromURL, "/")
-	return strings.Repeat("../", depth) + toURL
-}
-
 // renderPage executes tmpl with data to produce a page's body content, wraps
 // it in the common page shell, and writes the result to outDir/relURL
 // (creating any needed subdirectories for nested scopes).
@@ -345,8 +335,8 @@ func renderPage(outDir, relURL, title string, tmpl *template.Template, data any)
 	sd := shellData{
 		Title:        title,
 		Body:         template.HTML(body.String()), //nolint:gosec // body built from our own templates
-		IndexLink:    relLink(relURL, indexURL),
-		OutdatedLink: relLink(relURL, outdatedURL),
+		IndexLink:    build.RelLink(relURL, indexURL),
+		OutdatedLink: build.RelLink(relURL, outdatedURL),
 	}
 	var page bytes.Buffer
 	if err := shellTmpl.ExecuteTemplate(&page, "shell", sd); err != nil {
