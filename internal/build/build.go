@@ -1,7 +1,7 @@
 package build
 
 // @docsweb
-// @define build v0.5.0
+// @define build v0.6.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: collect every scope's targets,
@@ -15,17 +15,16 @@ package build
 // @uses vcs@v0.1.0
 // @audience dev
 // @changelog
-// Fixed: resolved `@link` destinations were the bare root-relative page
-// path (`TargetURL`'s own output, e.g. `lib/helper.html`), used directly as
-// an HTML href. That's only correct from a page sitting at the site root;
-// from any other page it resolves relative to the browser's current
-// directory, silently re-prefixing the destination with the referencing
-// page's own scope path. `@link` hrefs are now built with the new
-// `RelLink` (`"../"` repeated once per directory level the referencing
-// page is nested under, then the destination), matching how
-// [site](@link:site@v0.3.0) already links its "Uses"/"Used by" rows so the
-// two now agree. Non-breaking: output HTML changes, but no exported
-// signature does other than the new `RelLink` addition.
+// Breaking: a root-scope target's (or changelog entry's) `@audience` name
+// must now itself be declared in the root config's `audience:` map -
+// previously any alphanumeric name was accepted freely, with only
+// referenced-scope audiences checked against it. `remapScopeAudiences` no
+// longer skips root-scope targets; an undeclared name is now a hard build
+// error ("audience ... is not declared in this config's audience: map"),
+// matching how referenced-scope audiences were already enforced. The
+// reserved `all` audience still always passes through unchecked. A config
+// that used root-scope `@audience` names it never declared now fails to
+// build until it adds them to `audience:`.
 // @doc
 // # Build
 //
@@ -41,9 +40,12 @@ package build
 //    before its subtree is excluded from the root walk so nothing is
 //    scanned twice. A remote (`git:`) scope is a hard error - out of scope
 //    for this POC.
-// 3. Remap every non-root-scope target's `@audience` names through
-//    [config](@link:config@v0.2.0)'s
+// 3. Validate every target's `@audience` names against
+//    [config](@link:config@v0.2.0)'s declared `audience:` map: a root-scope
+//    target's audience must itself be declared; a non-root-scope target's
+//    audience goes through
 //    [referenced-scope audience mapping](@link:config@v0.2.0#audiencemap).
+//    Either way, an undeclared audience name is a hard build error.
 // 4. `ResolveUses` validates that every `@uses` lands on an existing
 //    target, and classifies each one by
 //    [DiffKind](@link:model@v0.1.0#diffkind) into an

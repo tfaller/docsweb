@@ -1,4 +1,7 @@
 name: docsweb
+audience:
+    dev:
+    user:
 ignore:
     # Fixture data with intentionally invalid/conflicting @docsweb
     # annotations, used by go test - not real documentation.

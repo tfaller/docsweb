@@ -10,7 +10,7 @@ package site
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.5.0
+// @uses build@v0.6.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog

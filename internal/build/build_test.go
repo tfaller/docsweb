@@ -97,6 +97,12 @@ func TestRunErrorsOnUnmappedScopeAudience(t *testing.T) {
 	assert.Contains(t, err.Error(), "unmapped")
 }
 
+func TestRunErrorsOnUndeclaredRootAudience(t *testing.T) {
+	_, err := Run(Options{ConfigPath: "testdata/audience_bad_root/.docsweb.yaml"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `audience "undeclared" is not declared`)
+}
+
 // testdata/ignore_bad is the same fixture as testdata/ignore, minus the
 // "ignore:" rule, confirming skip/broken.go really would break the build if
 // it weren't excluded.

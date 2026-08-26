@@ -43,6 +43,8 @@ A block ends at an explicit closing `@docsweb`, or otherwise at the natural end 
 ## Audiences
 Not all targets/documentation are important for all readers. `@audience` can be used to define for what readers a target or following text block are relevant. An audience is a group of users. Like devs, testers, admins and actual users as in end users / customers. `all` means all.
 
+Every audience name used by `@audience` must be declared in the scope's own `.docsweb.yaml`, under its top-level `audience:` map (see "Scopes" below) - an undeclared name is a build error, not a silently-accepted free-form tag. The reserved `all` name is the one exception; it never needs declaring. For a referenced scope, "declared" follows the audience-mapping rule described in "Scopes": a name that auto-maps or resolves through that scope's `audienceMap` counts as declared.
+
 ## Changelog definition
 
 Changelogs are important. Readers should not have to read the old documentation and the new one to understand what changed. The changelog should explain what and why something was changed. Changelog can define audiences to which the change is important. If it was not explicitly mentioned, it is important to the whole target audience. The changelog content itself follows the `@changelog` tag (optionally after its own `@audience` override) and ends at the next tag - typically `@doc` - or the end of the block. The changelog is meant to reflect just the change for the current version, from the previous to the current.
