@@ -12,7 +12,7 @@ package mdlink
 // @summary
 // Resolves @anchor:/@link: pseudo-URLs in Markdown to real HTML before
 // handing the text to a goldmark renderer.
-// @uses model@v0.2.0
+// @uses model@v0.3.0
 // @audience dev
 // @changelog
 // Initial documentation.

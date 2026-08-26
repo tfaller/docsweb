@@ -1,2 +1,3 @@
+name: ignoretest
 ignore:
     - skip/

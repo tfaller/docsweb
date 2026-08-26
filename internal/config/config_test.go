@@ -13,6 +13,7 @@ func TestLoadReadmeExample(t *testing.T) {
 	cfg, err := Load("testdata/docsweb.yaml")
 	require.NoError(t, err)
 
+	assert.Equal(t, "root", cfg.Name)
 	require.Contains(t, cfg.Audiences, model.Audience("user"))
 	require.Contains(t, cfg.Audiences, model.Audience("tester"))
 	require.Contains(t, cfg.Audiences, model.Audience("dev"))
@@ -68,6 +69,7 @@ func TestAudienceIncludes(t *testing.T) {
 
 func TestAudienceIncludesNestedCombine(t *testing.T) {
 	cfg, err := Parse([]byte(`
+name: s
 audience:
     a:
     b:
@@ -88,6 +90,7 @@ scope:
 
 func TestAudienceIncludesCycleDoesNotHang(t *testing.T) {
 	cfg, err := Parse([]byte(`
+name: s
 audience:
     a:
         combine:
@@ -131,6 +134,7 @@ func TestResolveScopeAudience(t *testing.T) {
 
 func TestParseDuplicateAudienceIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: s
 audience:
     dev:
     dev:
@@ -143,6 +147,7 @@ scope:
 
 func TestParseDuplicateScopeIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:
@@ -156,6 +161,7 @@ scope:
 
 func TestParseUnknownCombineReferenceIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     it:
         combine:
@@ -169,6 +175,7 @@ scope:
 
 func TestParseUnknownAudienceMapParentIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:
@@ -182,6 +189,7 @@ scope:
 
 func TestParseInvalidAudienceNameIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     "not valid!":
 scope:
@@ -191,8 +199,32 @@ scope:
 	assert.Error(t, err)
 }
 
+func TestParseName(t *testing.T) {
+	cfg, err := Parse([]byte(`
+name: com.company.project
+`))
+	require.NoError(t, err)
+	assert.Equal(t, "com.company.project", cfg.Name)
+}
+
+func TestParseMissingNameIsError(t *testing.T) {
+	_, err := Parse([]byte(`
+audience:
+    dev:
+`))
+	assert.ErrorContains(t, err, "name is required")
+}
+
+func TestParseInvalidNameIsError(t *testing.T) {
+	_, err := Parse([]byte(`
+name: "not-valid"
+`))
+	assert.Error(t, err)
+}
+
 func TestParseInvalidScopeNameSegmentIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:
@@ -204,6 +236,7 @@ scope:
 
 func TestParseIgnoreList(t *testing.T) {
 	cfg, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:
@@ -219,6 +252,7 @@ ignore:
 
 func TestParseIgnoreDefaultsToEmpty(t *testing.T) {
 	cfg, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:
@@ -231,6 +265,7 @@ scope:
 
 func TestParseScopeWithoutPathOrGitIsError(t *testing.T) {
 	_, err := Parse([]byte(`
+name: root
 audience:
     dev:
 scope:

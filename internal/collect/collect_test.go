@@ -52,6 +52,37 @@ func TestAddScopeAssignsScopeName(t *testing.T) {
 	assert.Equal(t, "myscope", tgt.Uses[0].Scope)
 }
 
+func TestAddScopeQualifiedDefineNames(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{Scope: "docsweb", Root: "testdata/qualified"})
+	require.NoError(t, err)
+
+	login, ok := r.Get("docsweb.auth.login")
+	require.True(t, ok)
+	assert.Equal(t, "docsweb.auth", login.Scope)
+	assert.Equal(t, "docsweb", login.ConfigScope)
+	assert.Equal(t, "login", login.Name)
+	// An unprefixed @uses inside a sub-namespaced target resolves against
+	// the target's own scope, not the governing config scope.
+	require.Len(t, login.Uses, 1)
+	assert.Equal(t, "docsweb.auth", login.Uses[0].Scope)
+	assert.Equal(t, "sibling", login.Uses[0].Name)
+
+	other, ok := r.Get("docsweb.other")
+	require.True(t, ok)
+	assert.Equal(t, "docsweb", other.Scope)
+	assert.Equal(t, "docsweb", other.ConfigScope)
+	assert.Equal(t, "other", other.Name)
+}
+
+func TestAddScopeAbsoluteDefineNameMismatchErrors(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{Scope: "docsweb", Root: "testdata/qualified_bad"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "other")
+	assert.Contains(t, err.Error(), "docsweb")
+}
+
 func TestAddScopeExcludesSubdirectory(t *testing.T) {
 	r := NewRegistry()
 	err := r.AddScope(Options{Scope: "", Root: "testdata/simple", Exclude: []string{"sub"}})

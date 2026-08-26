@@ -10,12 +10,12 @@ package site
 // Renders a build.Result into a static HTML site: one page per target,
 // one dedicated outdated-uses page, and an index page linking everything
 // together.
-// @uses build@v0.3.0
-// @uses model@v0.2.0
+// @uses build@v0.4.0
+// @uses model@v0.3.0
 // @audience dev
 // @changelog
 // Target pages now show who last bumped the current version, per
-// [build.RenderedTarget.Author](@link:build@v0.3.0) - omitted when unknown
+// [build.RenderedTarget.Author](@link:build@v0.4.0) - omitted when unknown
 // (not a git repository, or the version-bumping line couldn't be
 // git-blamed). Non-breaking addition.
 // @doc

@@ -53,13 +53,31 @@ Defining a linking target/anchor. Add a SemVer to inform about breaking changes.
 
 Target and scope names are alphanumeric only and case-sensitive - the same applies to audience names. A target name is separated from its version by `@` (`targetName@vX.X.X`). `@audience` takes a comma-separated list of names; whitespace around names and commas is ignored.
 
+`@define` names itself, and can be written in one of three forms:
+
 `
 @define targetName vX.X.X
 `
 
+A bare name is relative shorthand: it's implicitly scoped under the scope the defining file lives in (see "Scopes" below).
+
+`
+@define .subScope.targetName vX.X.X
+`
+
+A leading dot is also relative, but lets a target group itself into a sub-namespace within its own scope without having to retype that scope's name.
+
+`
+@define scope.subScope.targetName vX.X.X
+`
+
+Without a leading dot, a dotted name is taken completely literally as the target's absolute, fully-qualified name - including its own scope. This is validated: it's a hard build error unless it equals, or is a sub-namespace of, the name the containing scope declares for itself (see "Scopes"). This form is never required, but it makes a single `@docsweb` block fully self-describing even read in isolation, with no need to know which scope's `.docsweb.yaml` governs the file it's in.
+
 `
 @uses: scope.targetName@vX.X.X
 `
+
+An unprefixed `@uses` resolves relative to the referencing target's own scope (which may itself be a sub-namespace, per the two relative `@define` forms above).
 
 Anchor for links. The anchor name must be unique in the containing target
 `
@@ -91,9 +109,25 @@ The documentation system knows about Version Control. Because of course, documen
 
 ## Scopes
 
-Target scopes are relative and can be nested: scopeA.scopeB.targetName. Also if the scope path contains a .docsweb.yaml that file can itself define new sub scopes. So if the root scope is "a" and the sub .docsweb.yaml defines a "b" scope, the fully qualified scope is "a.b". For sub scopes, audiences need to be mapped. Audiences with the same name will get auto mapped. But any others need to be explicit.
+A scope declares its own name: `.docsweb.yaml`'s top-level `name:` is that scope's complete,
+self-declared identity (dot-joined, e.g. `com.company.project`) - like a Go module's `module` path,
+a C# `namespace`, or a Java `package` declaration. It is chosen once, by the scope itself, never
+assembled by whoever happens to reference it. `name:` is required on every `.docsweb.yaml`,
+including the root config - there is no implicit "unscoped" default.
+
+A parent config wires in a referenced scope with a `scope:` entry, but the entry's key is not
+itself the name - it's the name the parent *expects* to find there. At build time the referenced
+scope's own `.docsweb.yaml` is read, and its `name:` must equal that key exactly, or the build
+fails - the same way `go get` rejects a dependency whose `go.mod` declares a different module path
+than the one requested. A referenced scope's name is never appended to its parent's, and it need
+not be a path-based local checkout nested under the parent at all - a remote (`git:`) scope stands
+entirely on its own, elsewhere. It's an import, not a nesting composition, so the exact same scope
+always has the exact same fully-qualified name no matter which config references it. For referenced
+scopes, audiences need to be mapped. Audiences with the same name will get auto mapped. But any
+others need to be explicit.
 
 ```yaml
+name: root
 audience:
     user:
     tester:
@@ -116,6 +150,13 @@ scope:
 ignore:
     - testdata/
     - "*_test.go"
+```
+
+For this to build, `relative/path/to/scope/root/.docsweb.yaml` (the `pathBased` entry's own config)
+must in turn self-declare exactly:
+
+```yaml
+name: pathBased
 ```
 
 `ignore` excludes files and directories from every scope this config declares, relative to the

@@ -1,3 +1,4 @@
+name: remotetest
 scope:
     other:
         git: https://example.com/other.git

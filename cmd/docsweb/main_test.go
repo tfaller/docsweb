@@ -31,7 +31,7 @@ func TestRunBuildEndToEnd(t *testing.T) {
 	assert.NoError(t, err)
 	assert.FileExists(t, out+"/index.html")
 	assert.FileExists(t, out+"/_outdated.html")
-	assert.FileExists(t, out+"/app.html")
+	assert.FileExists(t, out+"/integration/app.html")
 	assert.FileExists(t, out+"/lib/helper.html")
 }
 

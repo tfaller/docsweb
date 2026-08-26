@@ -36,6 +36,79 @@ func TestParseTargetRefInvalid(t *testing.T) {
 	}
 }
 
+func TestParseQualifiedName(t *testing.T) {
+	scope, name, err := ParseQualifiedName("bla.bla.x")
+	require.NoError(t, err)
+	assert.Equal(t, "bla.bla", scope)
+	assert.Equal(t, "x", name)
+
+	scope2, name2, err := ParseQualifiedName("x")
+	require.NoError(t, err)
+	assert.Equal(t, "", scope2)
+	assert.Equal(t, "x", name2)
+}
+
+func TestParseQualifiedNameInvalid(t *testing.T) {
+	cases := []string{"", "bad-name", "scope..name"}
+	for _, c := range cases {
+		_, _, err := ParseQualifiedName(c)
+		assert.Errorf(t, err, "expected error for %q", c)
+	}
+}
+
+func TestParseDefineNameBare(t *testing.T) {
+	scope, name, err := ParseDefineName("login", "docsweb")
+	require.NoError(t, err)
+	assert.Equal(t, "docsweb", scope)
+	assert.Equal(t, "login", name)
+
+	scope2, name2, err := ParseDefineName("login", "")
+	require.NoError(t, err)
+	assert.Equal(t, "", scope2)
+	assert.Equal(t, "login", name2)
+}
+
+func TestParseDefineNameLeadingDot(t *testing.T) {
+	scope, name, err := ParseDefineName(".auth.login", "docsweb")
+	require.NoError(t, err)
+	assert.Equal(t, "docsweb.auth", scope)
+	assert.Equal(t, "login", name)
+
+	scope2, name2, err := ParseDefineName(".auth.login", "")
+	require.NoError(t, err)
+	assert.Equal(t, "auth", scope2)
+	assert.Equal(t, "login", name2)
+}
+
+func TestParseDefineNameAbsolute(t *testing.T) {
+	scope, name, err := ParseDefineName("docsweb.auth.login", "docsweb")
+	require.NoError(t, err)
+	assert.Equal(t, "docsweb.auth", scope)
+	assert.Equal(t, "login", name)
+
+	scope2, name2, err := ParseDefineName("docsweb.login", "docsweb")
+	require.NoError(t, err)
+	assert.Equal(t, "docsweb", scope2)
+	assert.Equal(t, "login", name2)
+}
+
+func TestParseDefineNameAbsoluteUnconstrainedUnderEmptyConfigScope(t *testing.T) {
+	scope, name, err := ParseDefineName("other.login", "")
+	require.NoError(t, err)
+	assert.Equal(t, "other", scope)
+	assert.Equal(t, "login", name)
+}
+
+func TestParseDefineNameAbsoluteMismatchIsError(t *testing.T) {
+	_, _, err := ParseDefineName("other.login", "docsweb")
+	assert.Error(t, err)
+}
+
+func TestParseDefineNameInvalidSegmentIsError(t *testing.T) {
+	_, _, err := ParseDefineName("bad-name", "docsweb")
+	assert.Error(t, err)
+}
+
 func TestParseAudiences(t *testing.T) {
 	a, err := ParseAudiences(" dev, tester ,user")
 	require.NoError(t, err)

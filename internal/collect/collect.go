@@ -4,7 +4,7 @@
 package collect
 
 // @docsweb
-// @define collect v0.2.0
+// @define collect v0.3.0
 // @name Collect
 // @summary
 // Walks a scope's source tree, extracts docsweb blocks, and builds a
@@ -12,12 +12,17 @@ package collect
 // within its scope.
 // @uses annotation@v0.2.0
 // @uses ignore@v0.1.0
-// @uses model@v0.2.0
+// @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Target.DefineLine is now populated from annotation.TargetDoc.DefineLine,
-// so downstream git-blame attribution (internal/vcs) can find the source
-// line that introduced a target's current version. Non-breaking addition.
+// Target names given to @define may now be dotted, per
+// model.ParseDefineName's three forms: bare and leading-dot forms
+// (relative to the scope being walked)
+// behave exactly as before by construction, and a new fully-qualified
+// absolute form is accepted and validated against that scope. Every
+// resulting target now also carries ConfigScope (the scope actually being
+// walked), separate from its own possibly-further-qualified Scope. Both
+// non-breaking additions - a previously-valid bare @define is unaffected.
 // @doc
 // # Collect
 //
@@ -32,14 +37,17 @@ package collect
 //
 // Every `annotation.TargetDoc` that comes back is converted from raw
 // strings into validated [model](@link:model@v0.1.0) types here: versions
-// are parsed, `@uses` references are resolved against the scope being
-// walked (so a scope-less `@uses` defaults to its own scope), and
+// are parsed, `@define`'s name is resolved via `model.ParseDefineName`
+// against the scope being walked (`Options.Scope`) - see
+// [model](@link:model@v0.1.0)'s three-form grammar - `@uses` references
+// are resolved against the resulting target's own scope (so a scope-less
+// `@uses` defaults to its own, possibly further-qualified, scope), and
 // audience lists are validated. Defining the same target name twice
 // within one scope - even across two different files - is a hard error,
 // reported with both files that tried to define it.
 //
 // A `Registry` accumulates targets across as many `AddScope` calls as a
-// build needs (one root scope plus any number of declared sub-scopes),
+// build needs (one root scope plus any number of declared referenced scopes),
 // keyed by `scope.name`, and preserves first-discovered order for
 // deterministic output.
 // @docsweb
@@ -205,9 +213,10 @@ func isProbablySource(name string) bool {
 	return true
 }
 
-func (r *Registry) addTargetDoc(scope, file string, doc annotation.TargetDoc) error {
-	if !model.ValidName(doc.Name) {
-		return fmt.Errorf("target name %q is not alphanumeric", doc.Name)
+func (r *Registry) addTargetDoc(configScope, file string, doc annotation.TargetDoc) error {
+	scope, name, err := model.ParseDefineName(doc.Name, configScope)
+	if err != nil {
+		return fmt.Errorf("target %q: %w", doc.Name, err)
 	}
 	version, err := model.ParseVersion(doc.VersionRaw)
 	if err != nil {
@@ -240,19 +249,20 @@ func (r *Registry) addTargetDoc(scope, file string, doc annotation.TargetDoc) er
 		changelog = append(changelog, model.ChangelogEntry{Audiences: aud, Body: c.Body})
 	}
 
-	key := doc.Name
+	key := name
 	if scope != "" {
-		key = scope + "." + doc.Name
+		key = scope + "." + name
 	}
 
 	if existing, ok := r.targets[key]; ok {
 		return fmt.Errorf("target %q already defined in scope %q (first in %s, again in %s)",
-			doc.Name, scope, strings.Join(existing.SourceFiles, ", "), file)
+			name, scope, strings.Join(existing.SourceFiles, ", "), file)
 	}
 
 	t := &model.Target{
 		Scope:       scope,
-		Name:        doc.Name,
+		ConfigScope: configScope,
+		Name:        name,
 		Version:     version,
 		DisplayName: doc.DisplayName,
 		Summary:     doc.Summary,

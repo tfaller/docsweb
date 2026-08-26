@@ -4,28 +4,39 @@
 package config
 
 // @docsweb
-// @define config v0.1.0
+// @define config v0.2.0
 // @name Config
 // @summary
-// Loads and validates .docsweb.yaml: declared audiences (with combine),
-// scopes (local or remote), and repo-wide ignore rules.
-// @uses model@v0.2.0
+// Loads and validates .docsweb.yaml: a scope's own self-declared name,
+// declared audiences (with combine), referenced scopes (local or remote),
+// and repo-wide ignore rules.
+// @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// `name:` is now required on every .docsweb.yaml, root or referenced -
+// Parse errors "name is required" if it's missing or empty. Previously a
+// missing name silently defaulted to an unscoped identity; that implicit
+// default is gone, so a previously-valid config with no name: now fails to
+// load.
 // @doc
 // # Config
 //
 // `Load`/`Parse` turn a `.docsweb.yaml` file into a validated `Config`:
 //
+// - `Name` - the top-level `name:` key: this scope's own self-declared,
+//   required, complete identity (dot-joined). Every `.docsweb.yaml` must
+//   declare one - there is no implicit "unscoped" default. See the
+//   README's "Scopes" section.
 // - `Audiences` - the `audience:` map, each entry naming the other
 //   audiences (if any) it's an umbrella over via `combine`.
 //   `AudienceIncludes` walks that combine graph (cycle-safe) to decide
 //   whether one audience transitively includes another.
-// - `Scopes` - the `scope:` map, keyed by the scope's full dot-joined
-//   name (`"parent.child"` is a valid key on its own, not a nested
-//   structure). An entry with `git` set is a remote scope; the POC parses
-//   it but rejects it at build time.
+// - `Scopes` - the `scope:` map, keyed by the *expected* name of each
+//   referenced scope (`"parent.child"` is a valid key on its own, not a
+//   nested structure) - `build.Run` verifies that expectation against the
+//   referenced scope's own self-declared `Name` at build time. An entry
+//   with `git` set is a remote scope; the POC parses it but rejects it at
+//   build time.
 // - `Ignore` - the repo-wide `ignore:` list, handed to
 //   [ignore](@link:ignore@v0.1.0) and applied to every scope.
 //
@@ -33,7 +44,7 @@ package config
 // `yaml.v3` errors on a mapping with a repeated key rather than silently
 // keeping the last one.
 //
-// ## Sub-scope [audience mapping](@anchor:audiencemap)
+// ## Referenced-scope [audience mapping](@anchor:audiencemap)
 //
 // `ResolveScopeAudience` implements the README's "Scopes" mapping rule:
 // an audience name that matches one declared in this config auto-maps to
@@ -85,6 +96,12 @@ func (s Scope) Remote() bool { return s.Git != "" }
 
 // Config is one parsed and validated .docsweb.yaml.
 type Config struct {
+	// Name is this scope's own self-declared canonical name (dot-joined) -
+	// required, every .docsweb.yaml must declare one, including the root
+	// config; there is no implicit/default unscoped identity. A parent
+	// config referencing this scope must use this exact name as its
+	// scope: key - see the README's "Scopes" section.
+	Name      string
 	Audiences map[model.Audience]Audience
 	Scopes    map[string]Scope
 	// Ignore lists gitignore-style patterns (see internal/ignore) of files
@@ -96,6 +113,7 @@ type Config struct {
 // rawConfig mirrors the yaml file shape directly; Parse turns it into the
 // validated Config type above.
 type rawConfig struct {
+	Name     string                 `yaml:"name"`
 	Audience map[string]rawAudience `yaml:"audience"`
 	Scope    map[string]rawScope    `yaml:"scope"`
 	Ignore   []string               `yaml:"ignore"`
@@ -134,6 +152,15 @@ func Parse(data []byte) (*Config, error) {
 	var raw rawConfig
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("invalid yaml: %w", err)
+	}
+
+	if raw.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	for _, seg := range strings.Split(raw.Name, ".") {
+		if !model.ValidName(seg) {
+			return nil, fmt.Errorf("invalid name %q: %q is not a valid alphanumeric name", raw.Name, seg)
+		}
 	}
 
 	audiences := make(map[model.Audience]Audience, len(raw.Audience))
@@ -190,7 +217,7 @@ func Parse(data []byte) (*Config, error) {
 		}
 	}
 
-	return &Config{Audiences: audiences, Scopes: scopes, Ignore: raw.Ignore}, nil
+	return &Config{Name: raw.Name, Audiences: audiences, Scopes: scopes, Ignore: raw.Ignore}, nil
 }
 
 // AudienceIncludes reports whether member is group itself, or is
@@ -220,7 +247,7 @@ func (c *Config) includes(group, member model.Audience, seen map[model.Audience]
 }
 
 // ResolveScopeAudience maps a scope-local audience name (as used by
-// @audience annotations under the named sub-scope) to the audience name
+// @audience annotations under the named referenced scope) to the audience name
 // declared in this config. Per README.md's "Scopes" section: audiences
 // with the same name auto-map to themselves; any other name must be
 // listed as an audienceMap key on that scope. It reports false if neither

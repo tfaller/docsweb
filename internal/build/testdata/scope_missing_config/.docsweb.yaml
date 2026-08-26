@@ -1,0 +1,4 @@
+name: root
+scope:
+    sub:
+        path: sub

@@ -1,39 +1,48 @@
 package build
 
 // @docsweb
-// @define build v0.3.0
+// @define build v0.4.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: collect every scope's targets,
 // validate and classify @uses references, resolve @anchor:/@link:
 // destinations, and render every target's Markdown to HTML.
-// @uses collect@v0.2.0
-// @uses config@v0.1.0
+// @uses collect@v0.3.0
+// @uses config@v0.2.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.1.0
-// @uses model@v0.2.0
+// @uses model@v0.3.0
 // @uses vcs@v0.1.0
 // @audience dev
 // @changelog
-// Every rendered target now carries an `Author` - who last bumped its
-// version, per git blame against HEAD's committed content, via the new
-// [vcs](@link:vcs@v0.1.0) package. Best-effort: "" if the build isn't
-// running inside a git repository, or the version-bumping line can't be
-// placed in the committed blob. Non-breaking addition.
+// The root scope's name is now [config](@link:config@v0.2.0)'s own
+// self-declared `Name`, not a caller-supplied option - `Options.RootScope`
+// is removed. Every declared referenced scope's own `.docsweb.yaml` is now
+// verified against the parent's `scope:` key before it's collected,
+// erroring if that config is missing or its `Name` doesn't match; a
+// referenced scope whose name collides with the root's own is also now a
+// hard error, where it previously silently overwrote the root's directory
+// mapping. `Options.RootScope` callers no longer compile, and a referenced
+// scope without a matching self-declared name now fails the build instead
+// of being collected under whatever name the parent chose.
 // @doc
 // # Build
 //
 // `Run` is the whole pipeline in one call:
 //
 // 1. Load `.docsweb.yaml` and compile its `ignore:` list via
-//    [ignore](@link:ignore@v0.1.0).
-// 2. Walk the root scope plus every declared local scope with
-//    [collect](@link:collect@v0.1.0), excluding each other declared
-//    scope's own subtree from the root walk so nothing is scanned twice.
-//    A remote (`git:`) scope is a hard error - out of scope for this POC.
+//    [ignore](@link:ignore@v0.1.0). The root scope's own name is this
+//    config's self-declared `Name` - required, no implicit default.
+// 2. Verify and walk the root scope plus every declared referenced scope
+//    with [collect](@link:collect@v0.1.0): each referenced scope's own
+//    `.docsweb.yaml` is loaded and its `Name` checked against the parent's
+//    `scope:` key - see [config](@link:config@v0.2.0)'s "Scopes" section -
+//    before its subtree is excluded from the root walk so nothing is
+//    scanned twice. A remote (`git:`) scope is a hard error - out of scope
+//    for this POC.
 // 3. Remap every non-root-scope target's `@audience` names through
-//    [config](@link:config@v0.1.0)'s
-//    [sub-scope audience mapping](@link:config@v0.1.0#audiencemap).
+//    [config](@link:config@v0.2.0)'s
+//    [referenced-scope audience mapping](@link:config@v0.2.0#audiencemap).
 // 4. `ResolveUses` validates that every `@uses` lands on an existing
 //    target, and classifies each one by
 //    [DiffKind](@link:model@v0.1.0#diffkind) into an
@@ -78,12 +87,10 @@ import (
 type Options struct {
 	// ConfigPath is the path to the root .docsweb.yaml. Its directory is
 	// the root scope's file tree; scopes it declares are read relative to
-	// that directory, per README.md's "Scopes" section.
+	// that directory, per README.md's "Scopes" section. The root scope's
+	// own name comes from that config's own self-declared `name:` field
+	// (Config.Name), not from an option here.
 	ConfigPath string
-	// RootScope names the root scope itself (the scope files directly
-	// under the config's directory belong to, outside any declared
-	// sub-scope). "" is a valid, and the default, root scope name.
-	RootScope string
 }
 
 // ChangelogHTML is one target's @changelog entry, rendered.
@@ -148,17 +155,28 @@ func Run(opts Options) (*Result, error) {
 	// scopeRoots maps every scope name (including the root scope) to its
 	// absolute directory, reused below to locate each target's defining
 	// file for git-blame attribution.
-	scopeRoots := map[string]string{opts.RootScope: rootDir}
+	scopeRoots := map[string]string{cfg.Name: rootDir}
 	excludes := make([]string, 0, len(cfg.Scopes))
 	for name, sc := range cfg.Scopes {
 		if sc.Remote() {
 			return nil, fmt.Errorf("scope %q: remote scopes are not supported by the POC (see README.md \"After POC\")", name)
 		}
+		if name == cfg.Name {
+			return nil, fmt.Errorf("scope %q: collides with the root scope's own name", name)
+		}
 		scopeRoot := filepath.Join(rootDir, sc.Path)
+		refConfigPath := filepath.Join(scopeRoot, ".docsweb.yaml")
+		refCfg, err := config.Load(refConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("scope %q: expected referenced scope config at %s: %w", name, refConfigPath, err)
+		}
+		if refCfg.Name != name {
+			return nil, fmt.Errorf("scope %q: %s declares name %q, expected %q", name, refConfigPath, refCfg.Name, name)
+		}
 		scopeRoots[name] = scopeRoot
 		excludes = append(excludes, scopeRoot)
 	}
-	if err := reg.AddScope(collect.Options{Scope: opts.RootScope, Root: rootDir, Exclude: excludes, Ignore: matcher, IgnoreBase: rootDir}); err != nil {
+	if err := reg.AddScope(collect.Options{Scope: cfg.Name, Root: rootDir, Exclude: excludes, Ignore: matcher, IgnoreBase: rootDir}); err != nil {
 		return nil, err
 	}
 	for name := range cfg.Scopes {
@@ -167,7 +185,7 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	if err := remapScopeAudiences(cfg, reg, opts.RootScope); err != nil {
+	if err := remapScopeAudiences(cfg, reg); err != nil {
 		return nil, err
 	}
 
@@ -192,7 +210,7 @@ func Run(opts Options) (*Result, error) {
 	for _, t := range reg.Targets() {
 		rt := RenderedTarget{Target: t, UsedBy: usedBy[t.Key()]}
 		if repo != nil {
-			rt.Author = blameAuthor(repo, scopeRoots[t.Scope], t)
+			rt.Author = blameAuthor(repo, scopeRoots[t.ConfigScope], t)
 		}
 
 		rt.SummaryHTML, err = mdlink.RenderDoc(t.Summary, t.Scope, resolver)

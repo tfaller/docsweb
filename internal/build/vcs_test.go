@@ -39,7 +39,7 @@ func initTempRepo(t *testing.T, files map[string]string, author object.Signature
 func TestRunAttributesVersionToItsGitBlameAuthor(t *testing.T) {
 	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Now()}
 	dir := initTempRepo(t, map[string]string{
-		".docsweb.yaml": "",
+		".docsweb.yaml": "name: standalone\n",
 		"main.go": "package integration\n\n" +
 			"/*\n" +
 			"    @docsweb\n" +
@@ -56,7 +56,7 @@ func TestRunAttributesVersionToItsGitBlameAuthor(t *testing.T) {
 
 func TestRunLeavesAuthorEmptyOutsideGitRepository(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".docsweb.yaml"), nil, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".docsweb.yaml"), []byte("name: standalone\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(
 		"package standalone\n\n"+
 			"/*\n"+

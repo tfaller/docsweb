@@ -13,13 +13,13 @@ import (
 // one declared in the root config auto-maps to itself; any other name must
 // be listed in that scope's audienceMap, or it's a hard error. The reserved
 // "all" audience always passes through unmapped.
-func remapScopeAudiences(cfg *config.Config, reg *collect.Registry, rootScope string) error {
+func remapScopeAudiences(cfg *config.Config, reg *collect.Registry) error {
 	for _, t := range reg.Targets() {
-		if t.Scope == rootScope {
+		if t.ConfigScope == cfg.Name {
 			continue
 		}
 		for i, a := range t.Audiences {
-			mapped, err := mapScopeAudience(cfg, t.Scope, a)
+			mapped, err := mapScopeAudience(cfg, t.ConfigScope, a)
 			if err != nil {
 				return fmt.Errorf("%s: @audience: %w", t.Key(), err)
 			}
@@ -27,7 +27,7 @@ func remapScopeAudiences(cfg *config.Config, reg *collect.Registry, rootScope st
 		}
 		for ci, c := range t.Changelog {
 			for i, a := range c.Audiences {
-				mapped, err := mapScopeAudience(cfg, t.Scope, a)
+				mapped, err := mapScopeAudience(cfg, t.ConfigScope, a)
 				if err != nil {
 					return fmt.Errorf("%s: @changelog @audience: %w", t.Key(), err)
 				}

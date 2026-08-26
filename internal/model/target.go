@@ -20,9 +20,17 @@ type ChangelogEntry struct {
 // Target is one fully-parsed and merged docsweb target: the result of
 // concatenating every docsweb block in a file that defines or continues it.
 type Target struct {
-	// Scope is the dot-joined scope path the target lives in ("" for the
-	// root scope).
+	// Scope is the target's own full dot-joined scope path ("" for the root
+	// scope), which may descend further than ConfigScope when @define used
+	// a leading-dot or fully-qualified sub-namespace (see
+	// model.ParseDefineName).
 	Scope string
+	// ConfigScope is the dot-joined name of the .docsweb.yaml/build scope
+	// that physically governs this target's location - what the collecting
+	// AddScope call's Options.Scope was. Used to locate that scope's
+	// directory (e.g. for git-blame) and to resolve its audienceMap; Scope
+	// is what identifies the target itself.
+	ConfigScope string
 	// Name is the target's bare name, unique within Scope.
 	Name string
 	// Version is the target's current version, from @define.

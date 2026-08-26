@@ -3,16 +3,20 @@
 package model
 
 // @docsweb
-// @define model v0.2.0
+// @define model v0.3.0
 // @name Model
 // @summary
 // Core domain types: exact SemVer versions, target references, and the
 // fully-merged Target representation every other package builds on.
 // @audience dev
 // @changelog
-// Target now carries DefineLine, the source line number of its @define -
-// used to attribute a version bump to whoever last changed that line via
-// git blame (see internal/vcs). Non-breaking addition.
+// New ParseQualifiedName (extracted from ParseTargetRef) and ParseDefineName
+// implement @define's three name forms - bare, leading-dot, and fully
+// qualified/absolute - so a target can optionally spell out its own
+// fully-qualified scope, validated against the scope it's physically defined
+// in. Target gained ConfigScope, the physically-governing scope, alongside
+// Scope (the target's own, possibly further-qualified, FQN) since the two
+// can now diverge. Both non-breaking additions.
 // @doc
 // # Model
 //
@@ -48,13 +52,24 @@ package model
 // used everywhere else as a map key, deliberately ignoring the version - a
 // target has exactly one live version at a time.
 //
+// `ParseDefineName` resolves an `@define` name against the scope it's
+// physically defined in (its `ConfigScope`): bare and leading-dot forms are
+// always relative to that scope and can never mismatch; a fully-qualified
+// form with no leading dot is taken literally and validated to equal or
+// descend from it, so a single `@docsweb` block can optionally spell out its
+// own complete identity without external context - see the README's
+// "Scopes" section for the full grammar.
+//
 // ## Target
 //
 // `Target` is the fully-parsed and merged result of every docsweb block
 // that defines or continues a given target name within one scope: display
 // name, summary, `@uses` list, audiences, changelog entries, and the main
 // `@doc` body, plus `SourceFiles` for traceability back to where each
-// piece was written.
+// piece was written. `Scope` is the target's own full FQN (which may
+// descend further than the scope it's defined in, via `@define`'s
+// leading-dot/absolute forms); `ConfigScope` is that physically-governing
+// scope itself, used to locate its directory and resolve its audience map.
 // @docsweb
 
 import (

@@ -40,6 +40,22 @@ func (r TargetRef) String() string {
 	return fmt.Sprintf("%s.%s@%s", r.Scope, r.Name, r.Version)
 }
 
+// ParseQualifiedName splits a dot-joined "[scope.]name" path into its scope
+// and name parts: the last segment is the name, everything before it
+// (rejoined with ".") is the scope. Each segment must be a ValidName. A path
+// with no dots returns scope "".
+func ParseQualifiedName(path string) (scope, name string, err error) {
+	segs := strings.Split(path, ".")
+	for _, seg := range segs {
+		if !ValidName(seg) {
+			return "", "", fmt.Errorf("%q is not a valid alphanumeric name", seg)
+		}
+	}
+	name = segs[len(segs)-1]
+	scope = strings.Join(segs[:len(segs)-1], ".")
+	return scope, name, nil
+}
+
 // ParseTargetRef parses "[scope.]targetName@vX.Y.Z". When the ref has no
 // scope prefix, defaultScope is used (typically the scope of the file the
 // reference was written in).
@@ -59,19 +75,59 @@ func ParseTargetRef(s string, defaultScope string) (TargetRef, error) {
 		return TargetRef{}, fmt.Errorf("invalid target reference %q: %w", orig, err)
 	}
 
-	segs := strings.Split(path, ".")
-	for _, seg := range segs {
-		if !ValidName(seg) {
-			return TargetRef{}, fmt.Errorf("invalid target reference %q: %q is not a valid alphanumeric name", orig, seg)
-		}
+	scope, name, err := ParseQualifiedName(path)
+	if err != nil {
+		return TargetRef{}, fmt.Errorf("invalid target reference %q: %w", orig, err)
 	}
-
-	name := segs[len(segs)-1]
-	scope := strings.Join(segs[:len(segs)-1], ".")
 	if scope == "" {
 		scope = defaultScope
 	}
 	return TargetRef{Scope: scope, Name: name, Version: version}, nil
+}
+
+// ParseDefineName parses an @define target name, which may be written in one
+// of three forms:
+//
+//   - bare, e.g. "login": relative shorthand, implicitly scoped under
+//     configScope.
+//   - leading-dot, e.g. ".auth.login": explicit relative form - configScope
+//     with the (possibly multi-segment) remainder appended, without having
+//     to retype configScope itself.
+//   - fully qualified, e.g. "docsweb.auth.login" (multiple segments, no
+//     leading dot): taken literally as the target's absolute scope, and
+//     validated to equal or descend from configScope (skipped entirely when
+//     configScope is "", since there's then no self-declared identity to
+//     check against).
+//
+// The two relative forms are derived by concatenation, never asserted, so
+// they can never fail the configScope check the absolute form is subject to.
+func ParseDefineName(raw, configScope string) (scope, name string, err error) {
+	relative := strings.HasPrefix(raw, ".")
+	body := raw
+	if relative {
+		body = raw[1:]
+	}
+
+	bodyScope, bodyName, err := ParseQualifiedName(body)
+	if err != nil {
+		return "", "", err
+	}
+
+	if relative || bodyScope == "" {
+		full := configScope
+		if bodyScope != "" {
+			if full != "" {
+				full += "."
+			}
+			full += bodyScope
+		}
+		return full, bodyName, nil
+	}
+
+	if configScope != "" && bodyScope != configScope && !strings.HasPrefix(bodyScope, configScope+".") {
+		return "", "", fmt.Errorf("declared scope %q does not match or descend from its scope %q", bodyScope, configScope)
+	}
+	return bodyScope, bodyName, nil
 }
 
 // ParseAudiences splits a comma-separated @audience list, trimming
