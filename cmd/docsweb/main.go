@@ -6,22 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.3.0
+// @define docsweb v0.4.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
 // @uses build@v0.7.0
-// @uses check@v0.1.0
+// @uses check@v0.2.0
 // @uses site@v0.3.0
 // @audience dev, user
 // @changelog
-// New `docsweb check` command: runs the same validation `docsweb build`
-// does - config/scope collection,
-// [audience/uses/anchor/link checks](@link:check@v0.1.0) - without
-// rendering anything, for local development and CI pipelines. Non-breaking
-// addition; `docsweb build`'s behavior is unchanged.
+// `docsweb check` gained a `--base <rev>` flag for
+// [check](@link:check@v0.2.0)'s new version/changelog-bump check: it
+// overrides the revision documentation is diffed against (default:
+// auto-detected CI merge/pull-request base, else `HEAD`). Non-breaking;
+// `docsweb build`'s behavior is unchanged.
 // @doc
 // # docsweb
 //
@@ -48,14 +48,19 @@ package main
 // ## Checking without building
 //
 // ```
-// docsweb check [--config .docsweb.yaml]
+// docsweb check [--config .docsweb.yaml] [--base <rev>]
 // ```
 //
 // `check` runs every validation [build](@link:build@v0.7.0) does - the
-// same [checks](@link:check@v0.1.0) - but stops there: nothing is ever
-// rendered to HTML or written to disk, and there is no `--out` flag. Use
-// it as a fast local/CI gate to confirm a change hasn't broken anything
-// before running a real build.
+// same [checks](@link:check@v0.2.0) - plus one it doesn't: that a target
+// whose documentation changed since a comparison base also bumped its
+// version and changelog. Nothing is ever rendered to HTML or written to
+// disk, and there is no `--out` flag. Use it as a fast local/CI gate to
+// confirm a change hasn't broken anything - and hasn't silently skipped
+// updating its own docs - before running a real build. `--base` overrides
+// which revision that last check diffs against; left unset, it
+// auto-detects a GitLab/GitHub merge/pull-request pipeline's target branch,
+// falling back to `HEAD`.
 //
 // ## This project, dogfed
 //
@@ -132,11 +137,12 @@ func runBuild(args []string) error {
 func runCheck(args []string) error {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 	configPath := fs.String("config", ".docsweb.yaml", "path to the root .docsweb.yaml")
+	base := fs.String("base", "", "revision to diff documentation against for the version/changelog-bump check (default: auto-detected merge base in a GitLab/GitHub merge/pull-request pipeline, else HEAD)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	result, err := check.Run(check.Options{ConfigPath: *configPath})
+	result, err := check.Run(check.Options{ConfigPath: *configPath, Base: *base})
 	if err != nil {
 		return fmt.Errorf("check: %w", err)
 	}

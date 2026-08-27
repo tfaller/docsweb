@@ -1,27 +1,24 @@
 package build
 
 // @docsweb
-// @define build v0.7.0
+// @define build v0.7.1
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, then render every
 // target's Markdown to HTML and attribute its current version to a git
 // blame author.
-// @uses check@v0.1.0
+// @uses check@v0.2.0
 // @uses mdlink@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.1.0
+// @uses vcs@v0.2.0
 // @audience dev
 // @changelog
-// Breaking: validation - scope collection, `@audience` mapping, `@uses`
-// resolution, `@anchor` uniqueness - is no longer implemented directly in
-// this package. It now lives in [check](@link:check@v0.1.0), reused
-// as-is by both `Run` here and the new `docsweb check` command, so the two
-// never validate a config two different ways. `ResolveUses`,
-// `ComputeUsedBy`, `UsageIssue`, and `UsedByRef` moved to that package
-// (`check.ResolveUses`, etc.) - code calling the old `build`-scoped names
-// must update its imports. `Run`'s behavior and `Options`/`Result` are
-// otherwise unchanged.
+// No behavior change - `@uses` references bumped to
+// [check](@link:check@v0.2.0)/[vcs](@link:vcs@v0.2.0)'s current versions
+// following their new version/changelog-bump-check and revision-diffing
+// additions respectively, neither of which `Run` here uses (it still only
+// calls `check.RunForBuild` and `vcs.Open`/`BlameAuthor`, exactly as
+// before).
 // @doc
 // # Build
 //

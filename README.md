@@ -103,11 +103,17 @@ Building the documentation requires reading every file anyway, so there is no se
 
 For the POC, the output is one page per target, plus one dedicated page for outdated uses. That page links to both the referencing target and the target's new version, showing the old and the new version and the changelog entries in between.
 
-`docsweb build` is the primary command to run a build. `docsweb check` runs the same validation - config/scope collection, `@audience`/`@uses`/`@anchor`/`@link` checks - without rendering anything, so it can be used as a fast local/CI gate before a real build.
+`docsweb build` is the primary command to run a build. `docsweb check` runs the same validation - config/scope collection, `@audience`/`@uses`/`@anchor`/`@link` checks - without rendering anything, so it can be used as a fast local/CI gate before a real build. `docsweb check` also runs one check `docsweb build` doesn't: see "Version bump check" below.
 
 ## Version Control
 
 The documentation system knows about Version Control. Because of course, documentation changes over time. Remote scopes will ideally define a branch as ref. So the documentation is e.g. always in sync with the main branch. But with direct access to version control the generated documentation can link to specific git commits. And things like: when was a specific target version introduced can be made visible. And generated changelog entries can be "blamed" to the user who did it. Also, because a changelog only contains info about the current revision, VCS is needed to generate a whole changelog overview/list. Also, VCS makes it possible to diff the actual docs.
+
+### Version bump check
+
+`docsweb check` diffs every target's documentation (its `@name`/`@summary`/`@doc`/`@uses`/`@audience` - everything but `@changelog` and `@define`'s version itself) against a comparison base commit. If it changed, the target must have bumped its `@define` version, and its `@changelog` must have changed too - a version bump with an unchanged changelog leaves readers with no way to tell what changed. A target that didn't exist yet at the comparison base (nothing to diff against) is exempt, and outside of a git repository this check is skipped entirely, same as git-blame author attribution.
+
+The comparison base is chosen automatically: inside a GitLab merge-request or GitHub pull-request CI pipeline (detected via their respective predefined environment variables) it's the merge base against the request's target branch, so a long-lived target branch that keeps moving doesn't produce false positives. Outside of such a pipeline it's the current `HEAD`, so a local run compares your working tree (uncommitted edits included) against your last commit. `docsweb check --base <rev>` overrides this with an explicit revision (a commit SHA, branch, tag, or anything else git itself accepts).
 
 ## Scopes
 
@@ -175,4 +181,4 @@ The following parts of the design are not part of the initial POC and are planne
 
 - Automatic discovery of nested `.docsweb.yaml` files and the resulting nested-scope/audience inheritance. The POC only resolves scopes explicitly declared in a single root config.
 - Cross-repo scopes (`remoteBased`, cloning/fetching a remote repository). The POC only resolves local, path-based scopes.
-- Version control integration beyond the current working directory - blame, historical versions, a changelog overview across versions, and diffing the documentation itself. The POC only ever looks at the current state of the working directory.
+- Version control integration beyond blame (author attribution) and diffing documentation against a comparison base commit, both implemented - a changelog overview across versions, and browsing historical versions of a target, are not.

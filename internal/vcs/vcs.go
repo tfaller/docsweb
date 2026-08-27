@@ -5,28 +5,37 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.1.0
+// @define vcs v0.2.0
 // @name VCS
 // @summary
-// Git-blame lookups: who last touched a given source line, used to
-// attribute a target's current version to the commit author who bumped it.
+// Git lookups: blame (who last touched a given source line) and, given a
+// revision, a repository's merge base and a file's committed contents -
+// used to attribute a version bump to its author and to diff documentation
+// against an older revision.
 // @audience dev
 // @changelog
-// Initial documentation.
+// New `Repository.Commit`/`MergeBase`/`FileContents`, alongside the
+// existing `BlameAuthor`: resolve any revision (SHA, branch, tag, `HEAD`,
+// `HEAD~1`, ...) to a commit, find the merge base of two revisions, and
+// read a file's contents as committed in a given commit. Used by
+// [check](@link:check@v0.2.0)'s new version/changelog-bump check to diff a
+// target's current documentation against an older revision. Non-breaking;
+// `Open`/`BlameAuthor`'s behavior is unchanged. The new `Commit` type is a
+// plain alias for go-git's `object.Commit`, so callers never need to import
+// go-git themselves just to hold a value these new methods return.
 // @doc
 // # VCS
 //
 // `vcs` depends on no other docsweb package; it wraps
-// `github.com/go-git/go-git/v6` blame against a repository's current HEAD
-// commit.
+// `github.com/go-git/go-git/v6`.
 //
 // `Open` discovers the git repository containing a directory (walking
 // upward for a `.git` entry, like the git CLI) and returns a `Repository`
-// ready for blame lookups against HEAD. It returns `ErrNoRepository` -
-// never a hard failure a caller has to propagate - when the directory
-// isn't inside a git working tree or the repository has no commits yet:
-// git attribution is optional, best-effort metadata, not something a
-// docsweb build should fail over.
+// ready for lookups against HEAD. It returns `ErrNoRepository` - never a
+// hard failure a caller has to propagate - when the directory isn't inside
+// a git working tree or the repository has no commits yet: git attribution
+// is optional, best-effort metadata, not something a docsweb build should
+// fail over.
 //
 // `Repository.BlameAuthor` blames one line of one file. It's given a
 // 1-based line number (checked first, as a fast path) and a substring to
@@ -41,6 +50,16 @@ package vcs
 // line whenever unrelated edits shifted line numbers. Returns `ok == false`
 // (no error) when the file isn't tracked at HEAD, or no line matches at
 // all - again, best-effort rather than a hard failure.
+//
+// `Repository.Commit` resolves any revision string to a `Commit`.
+// `Repository.MergeBase` resolves two revisions and returns their common
+// ancestor, per `git merge-base` - used to diff a CI merge/pull-request
+// branch against what it's actually being merged into, not against that
+// target branch's moving tip. `Repository.FileContents` reads a file's
+// contents as committed in a given `Commit`, `ok == false` (no error) if
+// that file didn't exist yet in that commit - a caller diffing
+// documentation against an older revision should treat a brand-new file as
+// "nothing to compare against", not a failure.
 // @docsweb
 
 import (
@@ -51,8 +70,14 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
+
+// Commit identifies one commit - an alias for go-git's object.Commit so
+// callers never need to import go-git themselves just to hold a value
+// returned by Commit/MergeBase.
+type Commit = object.Commit
 
 // ErrNoRepository is returned by Open when dir is not inside a git working
 // tree (or that tree has no commits yet). Callers should treat this as "no
@@ -84,6 +109,7 @@ func (a Author) String() string {
 // against its current HEAD commit.
 type Repository struct {
 	root   string
+	repo   *git.Repository
 	commit *object.Commit
 	blame  map[string]*git.BlameResult
 }
@@ -109,7 +135,70 @@ func Open(dir string) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vcs: reading HEAD commit: %w", err)
 	}
-	return &Repository{root: root, commit: commit, blame: map[string]*git.BlameResult{}}, nil
+	return &Repository{root: root, repo: repo, commit: commit, blame: map[string]*git.BlameResult{}}, nil
+}
+
+// Commit resolves rev - a full/abbreviated SHA, branch/tag name, "HEAD",
+// "origin/main", "HEAD~1", etc. (anything git.Repository.ResolveRevision
+// accepts) - to its commit object.
+func (r *Repository) Commit(rev string) (*Commit, error) {
+	hash, err := r.repo.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return nil, fmt.Errorf("vcs: resolving revision %q: %w", rev, err)
+	}
+	c, err := r.repo.CommitObject(*hash)
+	if err != nil {
+		return nil, fmt.Errorf("vcs: resolving revision %q: %w", rev, err)
+	}
+	return c, nil
+}
+
+// MergeBase returns the merge base of revA and revB - the most recent
+// commit both are descended from, per "git merge-base" - so a CI
+// merge/pull-request pipeline can diff against what a branch is actually
+// being merged into, rather than against that target branch's ever-moving
+// tip.
+func (r *Repository) MergeBase(revA, revB string) (*Commit, error) {
+	a, err := r.Commit(revA)
+	if err != nil {
+		return nil, err
+	}
+	b, err := r.Commit(revB)
+	if err != nil {
+		return nil, err
+	}
+	bases, err := a.MergeBase(b)
+	if err != nil {
+		return nil, fmt.Errorf("vcs: merge base of %q and %q: %w", revA, revB, err)
+	}
+	if len(bases) == 0 {
+		return nil, fmt.Errorf("vcs: %q and %q share no common history", revA, revB)
+	}
+	return bases[0], nil
+}
+
+// FileContents returns the contents of the file at absPath (an absolute
+// path inside the repository) as committed in c. ok is false, without an
+// error, if that file did not exist in c yet (e.g. it was added afterwards)
+// - a caller diffing documentation against a base revision should treat a
+// brand-new file as "nothing to compare against", not a hard failure.
+func (r *Repository) FileContents(c *Commit, absPath string) (content string, ok bool, err error) {
+	rel, err := r.relPath(absPath)
+	if err != nil {
+		return "", false, err
+	}
+	f, err := c.File(rel)
+	if err != nil {
+		if err == object.ErrFileNotFound {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", rel, c.Hash, err)
+	}
+	content, err = f.Contents()
+	if err != nil {
+		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", rel, c.Hash, err)
+	}
+	return content, true, nil
 }
 
 // findRepoRoot walks upward from dir looking for a .git entry (a directory
@@ -146,11 +235,10 @@ func findRepoRoot(dir string) (string, bool) {
 // no line contains it at all - this is best-effort metadata, not something
 // a caller should treat as fatal.
 func (r *Repository) BlameAuthor(absPath string, line int, contains string) (author Author, ok bool, err error) {
-	rel, err := filepath.Rel(r.root, absPath)
+	rel, err := r.relPath(absPath)
 	if err != nil {
-		return Author{}, false, fmt.Errorf("vcs: %s is not under repository root %s: %w", absPath, r.root, err)
+		return Author{}, false, err
 	}
-	rel = filepath.ToSlash(rel)
 
 	result, cached := r.blame[rel]
 	if !cached {
@@ -175,6 +263,17 @@ func (r *Repository) BlameAuthor(absPath string, line int, contains string) (aut
 		}
 	}
 	return Author{}, false, nil
+}
+
+// relPath converts an absolute path inside the repository into the
+// slash-separated, root-relative form every go-git lookup (blame, tree
+// entries) expects.
+func (r *Repository) relPath(absPath string) (string, error) {
+	rel, err := filepath.Rel(r.root, absPath)
+	if err != nil {
+		return "", fmt.Errorf("vcs: %s is not under repository root %s: %w", absPath, r.root, err)
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 func authorFromLine(l *git.Line) Author {

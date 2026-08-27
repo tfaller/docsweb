@@ -4,7 +4,7 @@
 package collect
 
 // @docsweb
-// @define collect v0.3.0
+// @define collect v0.4.0
 // @name Collect
 // @summary
 // Walks a scope's source tree, extracts docsweb blocks, and builds a
@@ -15,14 +15,14 @@ package collect
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Target names given to @define may now be dotted, per
-// model.ParseDefineName's three forms: bare and leading-dot forms
-// (relative to the scope being walked)
-// behave exactly as before by construction, and a new fully-qualified
-// absolute form is accepted and validated against that scope. Every
-// resulting target now also carries ConfigScope (the scope actually being
-// walked), separate from its own possibly-further-qualified Scope. Both
-// non-breaking additions - a previously-valid bare @define is unaffected.
+// The per-file "raw TargetDoc -> validated Target" conversion that used to
+// be buried inside the registry-insertion path is now also exported as
+// `ToTarget`, so a caller that needs the exact same validation for a single
+// file outside of a full `AddScope` walk - e.g.
+// [check](@link:check@v0.2.0)'s new version/changelog-bump check, re-parsing
+// an older git revision of a file to diff against the current one - doesn't
+// have to duplicate it. Non-breaking; `AddScope`'s own behavior is
+// unchanged.
 // @doc
 // # Collect
 //
@@ -36,15 +36,17 @@ package collect
 // being read.
 //
 // Every `annotation.TargetDoc` that comes back is converted from raw
-// strings into validated [model](@link:model@v0.1.0) types here: versions
-// are parsed, `@define`'s name is resolved via `model.ParseDefineName`
-// against the scope being walked (`Options.Scope`) - see
-// [model](@link:model@v0.1.0)'s three-form grammar - `@uses` references
-// are resolved against the resulting target's own scope (so a scope-less
-// `@uses` defaults to its own, possibly further-qualified, scope), and
-// audience lists are validated. Defining the same target name twice
-// within one scope - even across two different files - is a hard error,
-// reported with both files that tried to define it.
+// strings into validated [model](@link:model@v0.1.0) types by `ToTarget`:
+// versions are parsed, `@define`'s name is resolved via
+// `model.ParseDefineName` against the scope being walked (`Options.Scope`)
+// - see [model](@link:model@v0.1.0)'s three-form grammar - `@uses`
+// references are resolved against the resulting target's own scope (so a
+// scope-less `@uses` defaults to its own, possibly further-qualified,
+// scope), and audience lists are validated. `ToTarget` is exported for
+// callers that need this same conversion outside of a registry walk - e.g.
+// diffing an old git revision of a file. Defining the same target name
+// twice within one scope - even across two different files - is a hard
+// error, reported with both files that tried to define it.
 //
 // A `Registry` accumulates targets across as many `AddScope` calls as a
 // build needs (one root scope plus any number of declared referenced scopes),
@@ -214,27 +216,52 @@ func isProbablySource(name string) bool {
 }
 
 func (r *Registry) addTargetDoc(configScope, file string, doc annotation.TargetDoc) error {
+	t, err := ToTarget(configScope, file, doc)
+	if err != nil {
+		return err
+	}
+
+	key := t.Key()
+	if existing, ok := r.targets[key]; ok {
+		return fmt.Errorf("target %q already defined in scope %q (first in %s, again in %s)",
+			t.Name, t.Scope, strings.Join(existing.SourceFiles, ", "), file)
+	}
+
+	r.targets[key] = t
+	r.order = append(r.order, key)
+	return nil
+}
+
+// ToTarget converts a single file's parsed annotation.TargetDoc into a
+// validated model.Target: its @define name is resolved against configScope
+// (see model.ParseDefineName), its version and every @uses reference are
+// parsed, and its audience lists are validated. Exported so a caller that
+// needs a one-off conversion outside of a full AddScope walk - e.g.
+// re-parsing an old revision of a file to diff against the current one -
+// can reuse the exact same validation a normal scope collection applies,
+// without going through a Registry.
+func ToTarget(configScope, file string, doc annotation.TargetDoc) (*model.Target, error) {
 	scope, name, err := model.ParseDefineName(doc.Name, configScope)
 	if err != nil {
-		return fmt.Errorf("target %q: %w", doc.Name, err)
+		return nil, fmt.Errorf("target %q: %w", doc.Name, err)
 	}
 	version, err := model.ParseVersion(doc.VersionRaw)
 	if err != nil {
-		return fmt.Errorf("target %q: %w", doc.Name, err)
+		return nil, fmt.Errorf("target %q: %w", doc.Name, err)
 	}
 
 	uses := make([]model.TargetRef, 0, len(doc.UsesRaw))
 	for _, raw := range doc.UsesRaw {
 		ref, err := model.ParseTargetRef(raw, scope)
 		if err != nil {
-			return fmt.Errorf("target %q: @uses %q: %w", doc.Name, raw, err)
+			return nil, fmt.Errorf("target %q: @uses %q: %w", doc.Name, raw, err)
 		}
 		uses = append(uses, ref)
 	}
 
 	audiences, err := parseAudienceList(doc.AudienceRaw)
 	if err != nil {
-		return fmt.Errorf("target %q: %w", doc.Name, err)
+		return nil, fmt.Errorf("target %q: %w", doc.Name, err)
 	}
 
 	changelog := make([]model.ChangelogEntry, 0, len(doc.Changelog))
@@ -243,23 +270,13 @@ func (r *Registry) addTargetDoc(configScope, file string, doc annotation.TargetD
 		if c.AudienceRaw != "" {
 			aud, err = model.ParseAudiences(c.AudienceRaw)
 			if err != nil {
-				return fmt.Errorf("target %q: @changelog @audience: %w", doc.Name, err)
+				return nil, fmt.Errorf("target %q: @changelog @audience: %w", doc.Name, err)
 			}
 		}
 		changelog = append(changelog, model.ChangelogEntry{Audiences: aud, Body: c.Body})
 	}
 
-	key := name
-	if scope != "" {
-		key = scope + "." + name
-	}
-
-	if existing, ok := r.targets[key]; ok {
-		return fmt.Errorf("target %q already defined in scope %q (first in %s, again in %s)",
-			name, scope, strings.Join(existing.SourceFiles, ", "), file)
-	}
-
-	t := &model.Target{
+	return &model.Target{
 		Scope:       scope,
 		ConfigScope: configScope,
 		Name:        name,
@@ -272,10 +289,7 @@ func (r *Registry) addTargetDoc(configScope, file string, doc annotation.TargetD
 		Doc:         doc.Doc,
 		SourceFiles: []string{file},
 		DefineLine:  doc.DefineLine,
-	}
-	r.targets[key] = t
-	r.order = append(r.order, key)
-	return nil
+	}, nil
 }
 
 func parseAudienceList(raws []string) ([]model.Audience, error) {

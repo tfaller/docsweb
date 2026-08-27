@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -206,4 +207,102 @@ func TestAuthorString(t *testing.T) {
 
 func fixedTime() time.Time {
 	return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+}
+
+func TestCommitResolvesHEAD(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	initRepo(t, dir, []string{"package doc"}, alice)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	head, err := repo.Commit("HEAD")
+	require.NoError(t, err)
+	assert.Equal(t, repo.commit.Hash, head.Hash)
+}
+
+func TestCommitInvalidRevisionIsError(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	initRepo(t, dir, []string{"package doc"}, alice)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	_, err = repo.Commit("does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestMergeBase(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	path := initRepo(t, dir, []string{"package doc"}, alice)
+
+	gitRepo, err := git.PlainOpen(dir)
+	require.NoError(t, err)
+	wt, err := gitRepo.Worktree()
+	require.NoError(t, err)
+
+	root, err := gitRepo.Head()
+	require.NoError(t, err)
+
+	// A branch that stays at root - simulating a target branch that hasn't
+	// moved since a feature branch forked off it.
+	require.NoError(t, gitRepo.Storer.SetReference(
+		plumbing.NewHashReference(plumbing.NewBranchReferenceName("target"), root.Hash())))
+
+	writeLines(t, path, []string{"package doc", "// feature work"})
+	_, err = wt.Add("doc.go")
+	require.NoError(t, err)
+	bob := object.Signature{Name: "Bob", Email: "bob@example.com", When: fixedTime().Add(time.Hour)}
+	_, err = wt.Commit("feature work", &git.CommitOptions{Author: &bob})
+	require.NoError(t, err)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	base, err := repo.MergeBase("HEAD", "target")
+	require.NoError(t, err)
+	assert.Equal(t, root.Hash(), base.Hash)
+}
+
+func TestMergeBaseInvalidRevisionIsError(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	initRepo(t, dir, []string{"package doc"}, alice)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	_, err = repo.MergeBase("HEAD", "does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestFileContentsAtCommit(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	path := initRepo(t, dir, []string{"package doc", "// v1"}, alice)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	content, ok, err := repo.FileContents(repo.commit, path)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "package doc\n// v1", content)
+}
+
+func TestFileContentsMissingFileIsNotOK(t *testing.T) {
+	dir := t.TempDir()
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
+	initRepo(t, dir, []string{"package doc"}, alice)
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	content, ok, err := repo.FileContents(repo.commit, filepath.Join(dir, "never-committed.go"))
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Empty(t, content)
 }
