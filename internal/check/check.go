@@ -7,34 +7,35 @@
 package check
 
 // @docsweb
-// @define check v0.2.0
+// @define check v0.3.0
 // @name Check
 // @summary
-// Runs every validation a docsweb pipeline needs - scope collection,
-// audience mapping, use resolution, anchor uniqueness, link resolution,
-// and (docsweb-check-only) that documented changes bump a target's version
-// and changelog - without rendering any Markdown to HTML.
+// Runs every validation a docsweb pipeline needs - scope collection
+// (cloning any remote scope first), audience mapping, use resolution,
+// anchor uniqueness, link resolution, and (docsweb-check-only) that
+// documented changes bump a target's version and changelog - without
+// rendering any Markdown to HTML.
 // @uses annotation@v0.2.0
 // @uses collect@v0.4.0
 // @uses config@v0.2.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.2.0
+// @uses vcs@v0.3.0
 // @audience dev
 // @changelog
-// New `versionbump` check, tagged `CheckOnly` (so it only runs as part of
-// `docsweb check`, never `docsweb build`): for every target whose
-// documentation changed since a comparison base (per its VCS history), its
-// `@define` version must have been bumped and its `@changelog` must have
-// changed too. The comparison base is auto-detected - the merge base
-// against the target branch inside a GitLab merge-request/GitHub
-// pull-request CI pipeline, else the current `HEAD` - or overridden via the
-// new `Options.Base`, surfaced as `docsweb check --base <rev>`. Best-effort
-// like [vcs](@link:vcs@v0.2.0)'s git-blame attribution: it does nothing
-// outside of a git repository, and skips any target whose defining file (or
-// the target itself) didn't exist yet at the comparison base. Non-breaking;
-// every other check's behavior is unchanged.
+// **Remote (`git:`) scopes are now built, not rejected.** The **scopes**
+// check now clones a declared `git:` scope (via
+// [vcs.CloneOrFetch](@link:vcs@v0.3.0)) into a `docsweb-cache` directory
+// next to the root `.docsweb.yaml`, checks it out to its configured `ref`,
+// and walks it exactly like a local scope from there on - previously this
+// check hard-errored on any `git:` scope with "remote scopes are not
+// supported by the POC". The root scope's own `ignore:` rules (relative to
+// its own directory) are no longer applied to a remote scope's content,
+// since that content lives in an unrelated repository; a remote scope's
+// clone directory is excluded from the root scope's own walk the same way
+// a local referenced scope's directory already was. Non-breaking for local
+// scopes; every other check's behavior is unchanged.
 // @doc
 // # Check
 //
@@ -51,7 +52,9 @@ package check
 // [Check](@anchor:checktype)s, each tagged with the [Phase](@anchor:phase)
 // it applies to:
 //
-// - **scopes** - loads the root `.docsweb.yaml`, verifies every declared
+// - **scopes** - loads the root `.docsweb.yaml`, clones/fetches any
+//   declared `git:` scope into a `docsweb-cache` directory via
+//   [vcs.CloneOrFetch](@link:vcs@v0.3.0), verifies every declared
 //   referenced scope's own config against the parent's `scope:` key (see
 //   [config](@link:config@v0.2.0)'s "Scopes" section), and walks every
 //   scope's file tree via [collect](@link:collect@v0.1.0).
@@ -66,7 +69,7 @@ package check
 //   [mdlink](@link:mdlink@v0.1.0)'s `Preprocess` over every Markdown piece
 //   and discarding the result - the one step that would otherwise require
 //   actually rendering a page.
-// - **versionbump** (`CheckOnly`) - via [vcs](@link:vcs@v0.2.0), diffs every
+// - **versionbump** (`CheckOnly`) - via [vcs](@link:vcs@v0.3.0), diffs every
 //   target's documentation against a comparison base commit (auto-detected
 //   CI merge/pull-request base, an explicit `Options.Base`, or `HEAD`) and
 //   requires that a documented target whose content changed since that

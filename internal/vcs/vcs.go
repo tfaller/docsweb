@@ -5,29 +5,44 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.2.0
+// @define vcs v0.3.0
 // @name VCS
 // @summary
-// Git lookups: blame (who last touched a given source line) and, given a
-// revision, a repository's merge base and a file's committed contents -
-// used to attribute a version bump to its author and to diff documentation
-// against an older revision.
+// Git lookups: blame (who last touched a given source line), clone/fetch a
+// remote repository into a local cache, and, given a revision, a
+// repository's merge base and a file's committed contents - used to
+// attribute a version bump to its author, materialize a remote scope
+// locally, and diff documentation against an older revision.
 // @audience dev
 // @changelog
-// New `Repository.Commit`/`MergeBase`/`FileContents`, alongside the
-// existing `BlameAuthor`: resolve any revision (SHA, branch, tag, `HEAD`,
-// `HEAD~1`, ...) to a commit, find the merge base of two revisions, and
-// read a file's contents as committed in a given commit. Used by
-// [check](@link:check@v0.2.0)'s new version/changelog-bump check to diff a
-// target's current documentation against an older revision. Non-breaking;
-// `Open`/`BlameAuthor`'s behavior is unchanged. The new `Commit` type is a
-// plain alias for go-git's `object.Commit`, so callers never need to import
-// go-git themselves just to hold a value these new methods return.
+// New `CloneOrFetch(cacheDir, repoURL, ref)`: ensures a local, up-to-date
+// clone of repoURL exists under cacheDir, checked out to ref (a branch,
+// tag, or commit SHA - resolved in that order - or the repository's
+// default branch when ref is empty), and returns that clone's working-tree
+// root. A repeat call against the same cacheDir/repoURL fetches instead of
+// re-cloning. Used by [check](@link:check@v0.2.0)'s scope collection to
+// materialize a `git:` referenced scope (see README.md's "Scopes" section)
+// before walking it. Non-breaking; every existing export's behavior is
+// unchanged.
 // @doc
 // # VCS
 //
 // `vcs` depends on no other docsweb package; it wraps
 // `github.com/go-git/go-git/v6`.
+//
+// `CloneOrFetch` is how a remote (`git:`) scope gets materialized onto
+// disk: it clones repoURL into a deterministic, hashed subdirectory of
+// cacheDir on first use, or fetches `origin` into that same clone on every
+// later call, then checks the worktree out to `ref`'s resolved commit
+// (`Force`, so any local drift - there shouldn't be any, since nothing
+// else ever writes into the cache - is discarded rather than conflicting).
+// `ref` resolution tries, in order: a remote-tracking branch
+// (`origin/<ref>`), a tag, then any revision `ResolveRevision` itself
+// understands (a commit SHA, `HEAD`, ...). An empty `ref` tracks the
+// repository's default branch across repeat calls by resolving through
+// that same clone's one local branch ref (created once, by the initial
+// clone, and never touched again) rather than through `HEAD` itself, since
+// every checkout here leaves `HEAD` detached.
 //
 // `Open` discovers the git repository containing a directory (walking
 // upward for a `.git` entry, like the git CLI) and returns a `Repository`

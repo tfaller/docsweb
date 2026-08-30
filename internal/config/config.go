@@ -4,7 +4,7 @@
 package config
 
 // @docsweb
-// @define config v0.2.0
+// @define config v0.2.1
 // @name Config
 // @summary
 // Loads and validates .docsweb.yaml: a scope's own self-declared name,
@@ -13,11 +13,11 @@ package config
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// `name:` is now required on every .docsweb.yaml, root or referenced -
-// Parse errors "name is required" if it's missing or empty. Previously a
-// missing name silently defaulted to an unscoped identity; that implicit
-// default is gone, so a previously-valid config with no name: now fails to
-// load.
+// Doc fix only: the `Scopes` doc comment no longer claims a `git`-set entry
+// is rejected at build time - [check](@link:check@v0.3.0)'s scope
+// collection now clones and builds it. No code or behavior change in this
+// package itself; `Parse`/`Load` already accepted and returned `git:`
+// entries unchanged.
 // @doc
 // # Config
 //
@@ -35,8 +35,9 @@ package config
 //   referenced scope (`"parent.child"` is a valid key on its own, not a
 //   nested structure) - `build.Run` verifies that expectation against the
 //   referenced scope's own self-declared `Name` at build time. An entry
-//   with `git` set is a remote scope; the POC parses it but rejects it at
-//   build time.
+//   with `git` set is a remote scope: [check](@link:check@v0.3.0)'s scope
+//   collection clones it (via [vcs.CloneOrFetch](@link:vcs@v0.3.0)) before
+//   verifying and walking it exactly like a local one.
 // - `Ignore` - the repo-wide `ignore:` list, handed to
 //   [ignore](@link:ignore@v0.1.0) and applied to every scope.
 //
@@ -72,8 +73,8 @@ type Audience struct {
 // Scope is one entry from a config's `scope:` map. The map key itself is
 // the scope's full name (dot-joined for nested names, e.g. "parent.child")
 // - see PLAN.md assumption #2. An entry with Git set is a remote scope;
-// the POC parses these but does not build them (that's for a later
-// validation step to reject).
+// internal/check's scope collection clones it (see internal/vcs's
+// CloneOrFetch) before walking it like any other referenced scope.
 type Scope struct {
 	// Name is the scope's full dot-joined name, exactly as written as the
 	// scope map's key.

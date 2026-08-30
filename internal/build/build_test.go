@@ -1,8 +1,13 @@
 package build
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,10 +83,62 @@ func TestRunErrorsOnReferencedScopeNameCollidesWithRoot(t *testing.T) {
 	assert.Contains(t, err.Error(), "collides with the root scope's own name")
 }
 
-func TestRunRejectsRemoteScope(t *testing.T) {
-	_, err := Run(Options{ConfigPath: "testdata/remote/.docsweb.yaml"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remote scopes are not supported")
+// TestRunFullIntegrationWithRemoteScope mirrors TestRunFullIntegration, but
+// "lib" is a remote (git:) scope instead of a local, path-based one - a
+// fresh git repository standing in for the referenced repository
+// CloneOrFetch clones into the root scope's docsweb-cache directory. Proves
+// rendering (@link resolution, UsedBy, outdated-use classification) and
+// git-blame author attribution all work the same way across that boundary,
+// with the author correctly attributed from the remote repo's own commit
+// history rather than the root's.
+func TestRunFullIntegrationWithRemoteScope(t *testing.T) {
+	remoteDir := t.TempDir()
+	repo, err := git.PlainInit(remoteDir, false)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, ".docsweb.yaml"), []byte("name: lib\n"), 0o644))
+	helperSrc := "package lib\n\n/*\n    @docsweb\n    @define helper v1.2.0\n    @name Helper Library\n    @changelog\n    @audience dev\n    Added a new option.\n    @doc\n    Helper docs. [Anchor here](@anchor:usage)\n    @docsweb\n*/\n\nfunc Helper() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, "helper.go"), []byte(helperSrc), 0o644))
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add(".")
+	require.NoError(t, err)
+	bob := object.Signature{Name: "Bob", Email: "bob@example.com", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err = wt.Commit("add helper", &git.CommitOptions{Author: &bob})
+	require.NoError(t, err)
+
+	rootDir := t.TempDir()
+	rootCfg := "name: integration\naudience:\n    dev:\n    user:\nscope:\n    lib:\n        git: " + remoteDir + "\n        path: .\n"
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, ".docsweb.yaml"), []byte(rootCfg), 0o644))
+	appSrc := "package integration\n\n/*\n    @docsweb\n    @define app v1.0.0\n    @name The App\n    @uses lib.helper@v1.0.0\n    @audience user\n    @doc\n    See [the helper](@link:lib.helper@v1.2.0) for details.\n\n    [Jump back to top](@anchor:top)\n    @docsweb\n*/\n\nfunc App() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "main.go"), []byte(appSrc), 0o644))
+
+	result, err := Run(Options{ConfigPath: filepath.Join(rootDir, ".docsweb.yaml")})
+	require.NoError(t, err)
+	require.Len(t, result.Targets, 2)
+
+	byKey := map[string]RenderedTarget{}
+	for _, rt := range result.Targets {
+		byKey[rt.Target.Key()] = rt
+	}
+
+	app, ok := byKey["integration.app"]
+	require.True(t, ok)
+	assert.Contains(t, app.DocHTML, `href="../lib/helper.html"`)
+
+	helper, ok := byKey["lib.helper"]
+	require.True(t, ok)
+	assert.Contains(t, helper.DocHTML, `id="usage"`)
+	// Blamed from the remote repo's own commit history, not the root's -
+	// the root scope's own directory was never committed to any repo here.
+	assert.Equal(t, "Bob <bob@example.com>", helper.Author)
+
+	require.Len(t, helper.UsedBy, 1)
+	assert.Equal(t, "integration.app", helper.UsedBy[0].User.Key())
+
+	require.Len(t, result.Issues, 1)
+	assert.Equal(t, model.DiffMinor, result.Issues[0].Kind)
 }
 
 func TestRunRemapsScopeAudiences(t *testing.T) {

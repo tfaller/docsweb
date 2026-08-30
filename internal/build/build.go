@@ -1,24 +1,26 @@
 package build
 
 // @docsweb
-// @define build v0.7.1
+// @define build v0.8.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, then render every
 // target's Markdown to HTML and attribute its current version to a git
 // blame author.
-// @uses check@v0.2.0
+// @uses check@v0.3.0
 // @uses mdlink@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.2.0
+// @uses vcs@v0.3.0
 // @audience dev
 // @changelog
-// No behavior change - `@uses` references bumped to
-// [check](@link:check@v0.2.0)/[vcs](@link:vcs@v0.2.0)'s current versions
-// following their new version/changelog-bump-check and revision-diffing
-// additions respectively, neither of which `Run` here uses (it still only
-// calls `check.RunForBuild` and `vcs.Open`/`BlameAuthor`, exactly as
-// before).
+// Git-blame attribution now opens a `vcs.Repository` per target's own
+// scope root, lazily and cached, instead of once against the root scope's
+// directory - previously a target defined inside a remote (`git:`) scope
+// (see [check](@link:check@v0.3.0)) was blamed against the *root*
+// repository's history, which almost never contains that file, so its
+// `Author` came back empty. It's now correctly attributed from the remote
+// scope's own cloned repository. Non-breaking for root/local-scope
+// targets, whose attribution is unchanged.
 // @doc
 // # Build
 //
@@ -26,15 +28,16 @@ package build
 //
 // 1. [check.RunForBuild](@link:check@v0.1.0) does everything needed to
 //    confirm every target is in shape to render correctly: load
-//    `.docsweb.yaml`, verify and walk the root scope plus every declared
-//    referenced scope, validate `@audience` names, validate `@uses`
-//    references (classifying each by
+//    `.docsweb.yaml`, clone/fetch and walk the root scope plus every
+//    declared referenced scope (local or remote), validate `@audience`
+//    names, validate `@uses` references (classifying each by
 //    [DiffKind](@link:model@v0.1.0#diffkind) into an [outdated use](@anchor:outdated)),
 //    collect every target's anchors, and validate every `@link`
 //    reference resolves - all without rendering a single piece of
 //    Markdown to HTML.
 // 2. Git-blame attribution (best-effort, see `blameAuthor`) looks up who
-//    last touched each target's `@define` line.
+//    last touched each target's `@define` line, against that target's own
+//    scope root - a remote scope's cloned repository, when it is one.
 // 3. Render every target's Markdown pieces to HTML via
 //    [mdlink](@link:mdlink@v0.1.0#resolver), backed by a `Resolver` over
 //    the checked registry and its anchor sets.
@@ -132,16 +135,28 @@ func Run(opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	// git-blame attribution is best-effort: a build outside of a git
+	// git-blame attribution is best-effort: a scope root outside of a git
 	// checkout (or one that hits some other VCS error) simply produces
-	// targets with no Author, rather than failing.
-	repo, _ := vcs.Open(chk.RootDir)
+	// targets with no Author, rather than failing. Opened lazily per scope
+	// root - rather than once against chk.RootDir - since a remote scope's
+	// defining files live in a different git repository (its own cloned
+	// checkout) entirely.
+	repos := map[string]*vcs.Repository{}
+	repoFor := func(dir string) *vcs.Repository {
+		if r, cached := repos[dir]; cached {
+			return r
+		}
+		r, _ := vcs.Open(dir)
+		repos[dir] = r
+		return r
+	}
 
 	rendered := make([]RenderedTarget, 0, len(chk.Registry.Targets()))
 	for _, t := range chk.Registry.Targets() {
 		rt := RenderedTarget{Target: t, UsedBy: chk.UsedBy[t.Key()]}
-		if repo != nil {
-			rt.Author = blameAuthor(repo, chk.ScopeRoots[t.ConfigScope], t)
+		scopeRoot := chk.ScopeRoots[t.ConfigScope]
+		if repo := repoFor(scopeRoot); repo != nil {
+			rt.Author = blameAuthor(repo, scopeRoot, t)
 		}
 
 		// Resolved @link URLs must be relative to this target's own page, so

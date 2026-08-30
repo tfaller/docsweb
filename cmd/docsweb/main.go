@@ -6,22 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.4.0
+// @define docsweb v0.4.1
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.7.0
-// @uses check@v0.2.0
-// @uses site@v0.3.0
+// @uses build@v0.8.0
+// @uses check@v0.3.0
+// @uses site@v0.3.1
 // @audience dev, user
 // @changelog
-// `docsweb check` gained a `--base <rev>` flag for
-// [check](@link:check@v0.2.0)'s new version/changelog-bump check: it
-// overrides the revision documentation is diffed against (default:
-// auto-detected CI merge/pull-request base, else `HEAD`). Non-breaking;
-// `docsweb build`'s behavior is unchanged.
+// No behavior change - `@uses` references bumped to
+// [build](@link:build@v0.8.0)/[check](@link:check@v0.3.0)/[site](@link:site@v0.3.1)'s
+// current versions following their remote-scope and per-scope-root
+// git-blame work, none of which changes either CLI command's own flags or
+// behavior.
 // @doc
 // # docsweb
 //

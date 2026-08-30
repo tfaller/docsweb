@@ -167,6 +167,17 @@ must in turn self-declare exactly:
 name: pathBased
 ```
 
+A `git:` scope is resolved the same way, except its file tree comes from a clone instead of a local
+directory: the repository at `git` is cloned (or, on a later build, fetched) into a `docsweb-cache`
+directory next to the root `.docsweb.yaml`, checked out to `ref` (a branch, tag, or commit; the
+repository's default branch if `ref` is omitted), and `path` is then resolved inside that clone the
+same way it would be inside a local checkout. From there on a remote scope behaves exactly like a
+local one - its own `.docsweb.yaml` must still self-declare the expected name, targets link and
+`@uses` across scopes the same way, and `ignore:` still only applies to the root scope's own
+directory (a remote scope's content is someone else's repository, so the root's `ignore:` rules
+don't reach into it). `docsweb-cache` is reused and only fetched (not re-cloned) across builds, so
+it's worth adding to the root scope's own `.gitignore` and to its `.docsweb.yaml` `ignore:` list.
+
 `ignore` excludes files and directories from every scope this config declares, relative to the
 config's own directory - useful for keeping generated fixtures, test-only data, or build output
 out of the documentation. Rules work like `.gitignore`: blank lines and `#` comments are skipped,
@@ -180,5 +191,4 @@ anywhere but the end - otherwise it matches at any depth. `*`, `?` and `**` work
 The following parts of the design are not part of the initial POC and are planned for afterwards:
 
 - Automatic discovery of nested `.docsweb.yaml` files and the resulting nested-scope/audience inheritance. The POC only resolves scopes explicitly declared in a single root config.
-- Cross-repo scopes (`remoteBased`, cloning/fetching a remote repository). The POC only resolves local, path-based scopes.
 - Version control integration beyond blame (author attribution) and diffing documentation against a comparison base commit, both implemented - a changelog overview across versions, and browsing historical versions of a target, are not.
