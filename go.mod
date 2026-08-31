@@ -4,7 +4,8 @@ go 1.26.4
 
 require (
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
-	github.com/stretchr/testify v1.12.0
+	github.com/stretchr/testify v1.12.1
+	github.com/tfaller/go-git-fs v0.0.0-20260830214049-baaa19e46bff
 	github.com/yuin/goldmark v1.8.5
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -20,6 +21,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect

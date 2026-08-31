@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 
 func TestAddScopeCollectsTargets(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "", Root: "testdata/simple"})
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/simple")})
 	require.NoError(t, err)
 
 	alpha, ok := r.Get("alpha")
@@ -34,14 +35,14 @@ func TestAddScopeCollectsTargets(t *testing.T) {
 
 func TestAddScopeDuplicateTargetErrors(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "", Root: "testdata/dup"})
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/dup")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already defined")
 }
 
 func TestAddScopeAssignsScopeName(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "myscope", Root: "testdata/simple"})
+	err := r.AddScope(Options{Scope: "myscope", Root: os.DirFS("testdata/simple")})
 	require.NoError(t, err)
 
 	tgt, ok := r.Get("myscope.alpha")
@@ -54,7 +55,7 @@ func TestAddScopeAssignsScopeName(t *testing.T) {
 
 func TestAddScopeQualifiedDefineNames(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "docsweb", Root: "testdata/qualified"})
+	err := r.AddScope(Options{Scope: "docsweb", Root: os.DirFS("testdata/qualified")})
 	require.NoError(t, err)
 
 	login, ok := r.Get("docsweb.auth.login")
@@ -77,7 +78,7 @@ func TestAddScopeQualifiedDefineNames(t *testing.T) {
 
 func TestAddScopeAbsoluteDefineNameMismatchErrors(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "docsweb", Root: "testdata/qualified_bad"})
+	err := r.AddScope(Options{Scope: "docsweb", Root: os.DirFS("testdata/qualified_bad")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "other")
 	assert.Contains(t, err.Error(), "docsweb")
@@ -85,7 +86,7 @@ func TestAddScopeAbsoluteDefineNameMismatchErrors(t *testing.T) {
 
 func TestAddScopeExcludesSubdirectory(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "", Root: "testdata/simple", Exclude: []string{"sub"}})
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/simple"), Exclude: []string{"sub"}})
 	require.NoError(t, err)
 
 	_, ok := r.Get("beta")
@@ -99,7 +100,7 @@ func TestAddScopeExcludesSubdirectory(t *testing.T) {
 // a duplicate-target error.
 func TestAddScopeWithoutIgnoreErrorsOnDuplicate(t *testing.T) {
 	r := NewRegistry()
-	err := r.AddScope(Options{Scope: "", Root: "testdata/ignoretest"})
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/ignoretest")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already defined")
 }
@@ -107,7 +108,7 @@ func TestAddScopeWithoutIgnoreErrorsOnDuplicate(t *testing.T) {
 func TestAddScopeIgnoreSkipsMatchedDirectory(t *testing.T) {
 	r := NewRegistry()
 	err := r.AddScope(Options{
-		Scope: "", Root: "testdata/ignoretest",
+		Scope: "", Root: os.DirFS("testdata/ignoretest"),
 		Ignore: ignore.Compile([]string{"skip/"}),
 	})
 	require.NoError(t, err)
@@ -117,12 +118,12 @@ func TestAddScopeIgnoreSkipsMatchedDirectory(t *testing.T) {
 	assert.Len(t, r.Targets(), 1)
 }
 
-func TestAddScopeIgnoreBaseIsRelativeToGivenDir(t *testing.T) {
+func TestAddScopeIgnoreOffsetIsPrependedBeforeMatching(t *testing.T) {
 	r := NewRegistry()
 	err := r.AddScope(Options{
-		Scope: "", Root: "testdata/ignoretest",
-		Ignore:     ignore.Compile([]string{"ignoretest/skip/"}),
-		IgnoreBase: "testdata",
+		Scope: "", Root: os.DirFS("testdata/ignoretest"),
+		Ignore:       ignore.Compile([]string{"ignoretest/skip/"}),
+		IgnoreOffset: "ignoretest",
 	})
 	require.NoError(t, err)
 

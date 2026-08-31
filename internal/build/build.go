@@ -1,26 +1,29 @@
 package build
 
 // @docsweb
-// @define build v0.8.0
+// @define build v0.9.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, then render every
 // target's Markdown to HTML and attribute its current version to a git
 // blame author.
-// @uses check@v0.3.0
+// @uses check@v0.4.0
 // @uses mdlink@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.3.0
+// @uses vcs@v0.4.0
 // @audience dev
 // @changelog
-// Git-blame attribution now opens a `vcs.Repository` per target's own
-// scope root, lazily and cached, instead of once against the root scope's
-// directory - previously a target defined inside a remote (`git:`) scope
-// (see [check](@link:check@v0.3.0)) was blamed against the *root*
-// repository's history, which almost never contains that file, so its
-// `Author` came back empty. It's now correctly attributed from the remote
-// scope's own cloned repository. Non-breaking for root/local-scope
-// targets, whose attribution is unchanged.
+// Git-blame attribution now sources its `vcs.Repository` per target
+// differently depending on whether that target's own scope is local or
+// remote: a local scope still opens (lazily, cached) a `vcs.Repository` via
+// `vcs.Open` against that scope's on-disk root, exactly as before; a remote
+// (`git:`) scope's `vcs.Repository` now comes pre-resolved from
+// [check](@link:check@v0.4.0)'s new `Result.RemoteScopes`, pinned to the
+// commit its file tree was read from - since [vcs.OpenScope](@link:vcs@v0.4.0)
+// no longer checks a worktree out to disk at all, there's nothing left for
+// `vcs.Open` to discover there. Attribution itself is unaffected; a remote
+// scope's targets are still correctly blamed from that scope's own
+// repository history, not the root's. Non-breaking for callers of `Run`.
 // @doc
 // # Build
 //
@@ -28,7 +31,7 @@ package build
 //
 // 1. [check.RunForBuild](@link:check@v0.1.0) does everything needed to
 //    confirm every target is in shape to render correctly: load
-//    `.docsweb.yaml`, clone/fetch and walk the root scope plus every
+//    `.docsweb.yaml`, open/fetch and walk the root scope plus every
 //    declared referenced scope (local or remote), validate `@audience`
 //    names, validate `@uses` references (classifying each by
 //    [DiffKind](@link:model@v0.1.0#diffkind) into an [outdated use](@anchor:outdated)),
@@ -37,7 +40,8 @@ package build
 //    Markdown to HTML.
 // 2. Git-blame attribution (best-effort, see `blameAuthor`) looks up who
 //    last touched each target's `@define` line, against that target's own
-//    scope root - a remote scope's cloned repository, when it is one.
+//    scope's repository - a remote scope's own resolved commit, when it is
+//    one (see `Result.RemoteScopes`).
 // 3. Render every target's Markdown pieces to HTML via
 //    [mdlink](@link:mdlink@v0.1.0#resolver), backed by a `Resolver` over
 //    the checked registry and its anchor sets.
@@ -53,6 +57,7 @@ package build
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -137,12 +142,15 @@ func Run(opts Options) (*Result, error) {
 
 	// git-blame attribution is best-effort: a scope root outside of a git
 	// checkout (or one that hits some other VCS error) simply produces
-	// targets with no Author, rather than failing. Opened lazily per scope
-	// root - rather than once against chk.RootDir - since a remote scope's
-	// defining files live in a different git repository (its own cloned
-	// checkout) entirely.
+	// targets with no Author, rather than failing. A local scope root is
+	// opened lazily and cached, since its defining files may live in a
+	// different git repository (a different local scope's own checkout)
+	// than the root's; a remote scope's Repository comes pre-resolved from
+	// chk.RemoteScopes - it has no on-disk root for vcs.Open to discover in
+	// the first place, since [vcs.OpenScope](@link:vcs@v0.4.0) never checks
+	// a worktree out to disk.
 	repos := map[string]*vcs.Repository{}
-	repoFor := func(dir string) *vcs.Repository {
+	localRepo := func(dir string) *vcs.Repository {
 		if r, cached := repos[dir]; cached {
 			return r
 		}
@@ -154,9 +162,20 @@ func Run(opts Options) (*Result, error) {
 	rendered := make([]RenderedTarget, 0, len(chk.Registry.Targets()))
 	for _, t := range chk.Registry.Targets() {
 		rt := RenderedTarget{Target: t, UsedBy: chk.UsedBy[t.Key()]}
-		scopeRoot := chk.ScopeRoots[t.ConfigScope]
-		if repo := repoFor(scopeRoot); repo != nil {
-			rt.Author = blameAuthor(repo, scopeRoot, t)
+
+		var repo *vcs.Repository
+		var sourcePath string
+		if len(t.SourceFiles) > 0 {
+			if rs, ok := chk.RemoteScopes[t.ConfigScope]; ok {
+				repo = rs.Repo
+				sourcePath = path.Join(rs.Path, t.SourceFiles[0])
+			} else if scopeRoot, ok := chk.ScopeRoots[t.ConfigScope]; ok {
+				repo = localRepo(scopeRoot)
+				sourcePath = filepath.Join(scopeRoot, t.SourceFiles[0])
+			}
+		}
+		if repo != nil {
+			rt.Author = blameAuthor(repo, sourcePath, t)
 		}
 
 		// Resolved @link URLs must be relative to this target's own page, so
@@ -187,20 +206,22 @@ func Run(opts Options) (*Result, error) {
 }
 
 // blameAuthor looks up who last touched t's @define line - the line naming
-// its current version - via git blame against HEAD. The line is found by
-// its content ("@define <name> <version>", exactly what @define's grammar
+// its current version - via git blame against repo's pinned commit (HEAD,
+// for a local scope's repo opened via vcs.Open). sourcePath locates t's
+// defining file within repo - see vcs.Repository.BlameAuthor's doc for what
+// it means for a local vs. a remote scope's repo. The line is found by its
+// content ("@define <name> <version>", exactly what @define's grammar
 // requires), built from t.Name/t.Version already in memory, rather than by
 // re-reading the defining file just to reproduce its exact text. Returns ""
-// (never an error) if that isn't knowable: no SourceFiles/DefineLine
-// recorded, or repo.BlameAuthor itself can't place the line (untracked
-// file, no matching line in the committed blob).
-func blameAuthor(repo *vcs.Repository, scopeRoot string, t *model.Target) string {
-	if t.DefineLine <= 0 || len(t.SourceFiles) == 0 {
+// (never an error) if that isn't knowable: no DefineLine recorded, or
+// repo.BlameAuthor itself can't place the line (untracked file, no matching
+// line in the committed blob).
+func blameAuthor(repo *vcs.Repository, sourcePath string, t *model.Target) string {
+	if t.DefineLine <= 0 {
 		return ""
 	}
-	absPath := filepath.Join(scopeRoot, t.SourceFiles[0])
 	contains := "@define " + t.Name + " " + t.Version.String()
-	author, ok, err := repo.BlameAuthor(absPath, t.DefineLine, contains)
+	author, ok, err := repo.BlameAuthor(sourcePath, t.DefineLine, contains)
 	if err != nil || !ok {
 		return ""
 	}

@@ -4,7 +4,7 @@
 package collect
 
 // @docsweb
-// @define collect v0.4.0
+// @define collect v0.5.0
 // @name Collect
 // @summary
 // Walks a scope's source tree, extracts docsweb blocks, and builds a
@@ -15,18 +15,25 @@ package collect
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// The per-file "raw TargetDoc -> validated Target" conversion that used to
-// be buried inside the registry-insertion path is now also exported as
-// `ToTarget`, so a caller that needs the exact same validation for a single
-// file outside of a full `AddScope` walk - e.g.
-// [check](@link:check@v0.2.0)'s new version/changelog-bump check, re-parsing
-// an older git revision of a file to diff against the current one - doesn't
-// have to duplicate it. Non-breaking; `AddScope`'s own behavior is
+// **`Options.Root` is now an `fs.FS`, not a directory path.** `AddScope`
+// walks it with `fs.WalkDir`/`fs.ReadFile` instead of `filepath.WalkDir`/
+// `os.ReadFile`, so a scope's file tree no longer has to exist on disk - a
+// local scope wraps its directory in `os.DirFS`, while a remote (`git:`)
+// scope's tree now comes straight from
+// [vcs.OpenScope](@link:vcs@v0.4.0)'s `fs.FS` over a resolved commit, with
+// no worktree ever checked out to disk (see README.md's "Scopes" section).
+// `Options.Exclude` and the new `Options.IgnoreOffset` (replacing
+// `IgnoreBase`) are now slash-separated paths relative to `Root`, rather
+// than OS directory paths - callers building either of those must be
+// changed accordingly. Breaking for `Options`; `ToTarget`'s own behavior is
 // unchanged.
 // @doc
 // # Collect
 //
-// `AddScope` walks a directory recursively, skips `.git`, whatever
+// `AddScope` walks `Options.Root` (an `fs.FS` - a local scope's own OS
+// directory wrapped in `os.DirFS`, or a remote scope's git tree straight
+// from [vcs.OpenScope](@link:vcs@v0.4.0), with no worktree checkout
+// involved either way) recursively, skips `.git`, whatever
 // `Options.Exclude` names (other scopes' subtrees, so a shared root walk
 // never double-scans them) and whatever `Options.Ignore` matches, then
 // hands every remaining file's contents to
@@ -57,8 +64,7 @@ package collect
 import (
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 
@@ -72,20 +78,27 @@ type Options struct {
 	// Scope is the dot-joined scope name assigned to every target found
 	// under Root ("" for the root/unscoped tree).
 	Scope string
-	// Root is the filesystem directory to scan, recursively.
-	Root string
-	// Exclude lists subdirectories (relative to Root, or absolute) that
-	// belong to other, separately-declared scopes (or to build output)
-	// and must not be scanned as part of this one.
+	// Root is the file system to scan, recursively - a local scope wraps
+	// its OS directory in os.DirFS, while a remote (git) scope's tree
+	// comes straight from vcs.OpenScope, with no on-disk checkout at all.
+	Root fs.FS
+	// Exclude lists subdirectories (slash-separated, relative to Root)
+	// that belong to other, separately-declared scopes (or to build
+	// output) and must not be scanned as part of this one.
 	Exclude []string
 	// Ignore, if set, is matched against every file/directory found under
-	// Root (as a path relative to IgnoreBase) and excludes whatever it
-	// matches, same as a real .gitignore would.
+	// Root (as a path relative to wherever Ignore's patterns are
+	// anchored - see IgnoreOffset) and excludes whatever it matches, same
+	// as a real .gitignore would.
 	Ignore *ignore.Matcher
-	// IgnoreBase is the directory Ignore's patterns are relative to.
-	// Defaults to Root when empty, so a single scope can be scanned
-	// standalone (e.g. in tests) without also having to set this.
-	IgnoreBase string
+	// IgnoreOffset is Root's own path relative to wherever Ignore's
+	// patterns are anchored (e.g. the root scope's own directory) -
+	// prepended to a file's Root-relative path before matching, so a
+	// scope walked from underneath that anchor can still be matched
+	// against rules declared there. Empty when Root already is that
+	// anchor, which is also fine for a standalone scope scanned on its
+	// own (e.g. in tests) with no surrounding anchor at all.
+	IgnoreOffset string
 }
 
 // Registry accumulates targets discovered across one or more scopes.
@@ -119,95 +132,71 @@ func (r *Registry) Get(key string) (*model.Target, bool) {
 // file's annotations are malformed, a reference fails to parse, or a target
 // name collides with one already in the same scope.
 func (r *Registry) AddScope(opts Options) error {
-	root, err := filepath.Abs(opts.Root)
-	if err != nil {
-		return fmt.Errorf("scope %q: %w", opts.Scope, err)
-	}
-
-	ignoreBase := root
-	if opts.IgnoreBase != "" {
-		ignoreBase, err = filepath.Abs(opts.IgnoreBase)
-		if err != nil {
-			return fmt.Errorf("scope %q: %w", opts.Scope, err)
-		}
-	}
-
 	excluded := make([]string, 0, len(opts.Exclude))
 	for _, e := range opts.Exclude {
-		abs := e
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(root, e)
-		}
-		excluded = append(excluded, filepath.Clean(abs))
+		excluded = append(excluded, path.Clean(e))
 	}
 
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(opts.Root, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		clean := filepath.Clean(path)
 
 		if d.IsDir() {
-			if clean != root && (d.Name() == ".git" || isExcluded(clean, excluded) || isIgnored(opts.Ignore, ignoreBase, clean, true)) {
-				return filepath.SkipDir
+			if p != "." && (d.Name() == ".git" || isExcluded(p, excluded) || isIgnored(opts.Ignore, opts.IgnoreOffset, p, true)) {
+				return fs.SkipDir
 			}
 			return nil
 		}
 
-		if isExcluded(clean, excluded) || isIgnored(opts.Ignore, ignoreBase, clean, false) {
+		if isExcluded(p, excluded) || isIgnored(opts.Ignore, opts.IgnoreOffset, p, false) {
 			return nil
 		}
 		if d.Name() == ".docsweb.yaml" || !isProbablySource(d.Name()) {
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, path)
+		src, err := fs.ReadFile(opts.Root, p)
 		if err != nil {
-			rel = path
-		}
-
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", rel, err)
+			return fmt.Errorf("reading %s: %w", p, err)
 		}
 
 		docs, err := annotation.ParseSource(string(src))
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return fmt.Errorf("%s: %w", p, err)
 		}
 		for _, doc := range docs {
-			if err := r.addTargetDoc(opts.Scope, rel, doc); err != nil {
-				return fmt.Errorf("%s: %w", rel, err)
+			if err := r.addTargetDoc(opts.Scope, p, doc); err != nil {
+				return fmt.Errorf("%s: %w", p, err)
 			}
 		}
 		return nil
 	})
 }
 
-func isExcluded(path string, excluded []string) bool {
+func isExcluded(p string, excluded []string) bool {
 	for _, e := range excluded {
-		if path == e || strings.HasPrefix(path, e+string(filepath.Separator)) {
+		if p == e || strings.HasPrefix(p, e+"/") {
 			return true
 		}
 	}
 	return false
 }
 
-func isIgnored(m *ignore.Matcher, base, path string, isDir bool) bool {
+func isIgnored(m *ignore.Matcher, offset, p string, isDir bool) bool {
 	if m == nil {
 		return false
 	}
-	rel, err := filepath.Rel(base, path)
-	if err != nil {
-		return false
+	if offset != "" {
+		p = path.Join(offset, p)
 	}
-	return m.Match(filepath.ToSlash(rel), isDir)
+	return m.Match(p, isDir)
 }
 
 // isProbablySource reports whether a file is worth scanning for docsweb
 // annotations. Binary/generated/vendored artifacts are skipped outright.
 func isProbablySource(name string) bool {
-	switch filepath.Ext(name) {
+	switch path.Ext(name) {
 	case ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2",
 		".exe", ".bin", ".zip", ".tar", ".gz", ".pdf":
 		return false

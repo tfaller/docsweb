@@ -4,7 +4,7 @@
 package config
 
 // @docsweb
-// @define config v0.2.1
+// @define config v0.3.0
 // @name Config
 // @summary
 // Loads and validates .docsweb.yaml: a scope's own self-declared name,
@@ -13,15 +13,18 @@ package config
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Doc fix only: the `Scopes` doc comment no longer claims a `git`-set entry
-// is rejected at build time - [check](@link:check@v0.3.0)'s scope
-// collection now clones and builds it. No code or behavior change in this
-// package itself; `Parse`/`Load` already accepted and returned `git:`
-// entries unchanged.
+// New `LoadFS(fsys, name)`: the `fs.FS`-based counterpart to `Load`, for a
+// scope whose file tree isn't necessarily an OS directory - used by
+// [check](@link:check@v0.4.0)'s scope collection to read a remote scope's
+// own `.docsweb.yaml` straight out of its resolved commit (see
+// [vcs.OpenScope](@link:vcs@v0.4.0)), now that a remote scope no longer has
+// a worktree checked out to disk at all. Non-breaking; `Load`/`Parse`'s own
+// behavior is unchanged.
 // @doc
 // # Config
 //
-// `Load`/`Parse` turn a `.docsweb.yaml` file into a validated `Config`:
+// `Load`/`LoadFS`/`Parse` turn a `.docsweb.yaml` file into a validated
+// `Config`:
 //
 // - `Name` - the top-level `name:` key: this scope's own self-declared,
 //   required, complete identity (dot-joined). Every `.docsweb.yaml` must
@@ -35,9 +38,10 @@ package config
 //   referenced scope (`"parent.child"` is a valid key on its own, not a
 //   nested structure) - `build.Run` verifies that expectation against the
 //   referenced scope's own self-declared `Name` at build time. An entry
-//   with `git` set is a remote scope: [check](@link:check@v0.3.0)'s scope
-//   collection clones it (via [vcs.CloneOrFetch](@link:vcs@v0.3.0)) before
-//   verifying and walking it exactly like a local one.
+//   with `git` set is a remote scope: [check](@link:check@v0.4.0)'s scope
+//   collection opens it (via [vcs.OpenScope](@link:vcs@v0.4.0), reading its
+//   resolved commit's tree directly rather than checking out a worktree)
+//   before verifying and walking it exactly like a local one.
 // - `Ignore` - the repo-wide `ignore:` list, handed to
 //   [ignore](@link:ignore@v0.1.0) and applied to every scope.
 //
@@ -56,6 +60,7 @@ package config
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -73,8 +78,8 @@ type Audience struct {
 // Scope is one entry from a config's `scope:` map. The map key itself is
 // the scope's full name (dot-joined for nested names, e.g. "parent.child")
 // - see PLAN.md assumption #2. An entry with Git set is a remote scope;
-// internal/check's scope collection clones it (see internal/vcs's
-// CloneOrFetch) before walking it like any other referenced scope.
+// internal/check's scope collection opens it (see internal/vcs's
+// OpenScope) before walking it like any other referenced scope.
 type Scope struct {
 	// Name is the scope's full dot-joined name, exactly as written as the
 	// scope map's key.
@@ -140,6 +145,22 @@ func Load(path string) (*Config, error) {
 	cfg, err := Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// LoadFS reads and parses the .docsweb.yaml file at name within fsys - the
+// fs.FS-based counterpart to Load, used for a scope whose file tree isn't
+// necessarily an OS directory (e.g. a remote scope's git tree, read
+// straight out of a commit via vcs.OpenScope with no worktree checkout).
+func LoadFS(fsys fs.FS, name string) (*Config, error) {
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", name, err)
+	}
+	cfg, err := Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", name, err)
 	}
 	return cfg, nil
 }

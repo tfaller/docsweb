@@ -1,6 +1,7 @@
 package check
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,7 +12,7 @@ import (
 
 func TestCheckLinksAcceptsResolvableLinksAndAnchors(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/links_good"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/links_good")}))
 
 	ctx := &context{registry: reg}
 	require.NoError(t, checkAnchors(ctx))
@@ -20,7 +21,7 @@ func TestCheckLinksAcceptsResolvableLinksAndAnchors(t *testing.T) {
 
 func TestCheckLinksRejectsUnresolvedTarget(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/links_bad"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/links_bad")}))
 
 	ctx := &context{registry: reg}
 	require.NoError(t, checkAnchors(ctx))
@@ -32,7 +33,7 @@ func TestCheckLinksRejectsUnresolvedTarget(t *testing.T) {
 
 func TestCheckLinksRejectsUnresolvedAnchor(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/links_good"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/links_good")}))
 
 	// Corrupt the anchor set as if "usage" had never been declared, to
 	// exercise the #anchor-specific failure path without a separate fixture.

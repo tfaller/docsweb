@@ -6,22 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.4.1
+// @define docsweb v0.4.2
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.8.0
-// @uses check@v0.3.0
+// @uses build@v0.9.0
+// @uses check@v0.4.0
 // @uses site@v0.3.1
 // @audience dev, user
 // @changelog
 // No behavior change - `@uses` references bumped to
-// [build](@link:build@v0.8.0)/[check](@link:check@v0.3.0)/[site](@link:site@v0.3.1)'s
-// current versions following their remote-scope and per-scope-root
-// git-blame work, none of which changes either CLI command's own flags or
-// behavior.
+// [build](@link:build@v0.9.0)/[check](@link:check@v0.4.0)'s current
+// versions following their move to reading a remote (`git:`) scope's file
+// tree directly out of git's object store, with no worktree checkout,
+// neither of which changes either CLI command's own flags or behavior.
 // @doc
 // # docsweb
 //
@@ -40,7 +40,7 @@ package main
 // ```
 //
 // `--config` points at the root `.docsweb.yaml` (see
-// [config](@link:config@v0.2.0)); its directory is the root scope's file
+// [config](@link:config@v0.3.0)); its directory is the root scope's file
 // tree, and that config's own required, self-declared `name:` names the
 // root scope itself - there is no unscoped default. `--out` is the output
 // directory for the generated site (default: `dist`).
@@ -51,8 +51,8 @@ package main
 // docsweb check [--config .docsweb.yaml] [--base <rev>]
 // ```
 //
-// `check` runs every validation [build](@link:build@v0.7.0) does - the
-// same [checks](@link:check@v0.2.0) - plus one it doesn't: that a target
+// `check` runs every validation [build](@link:build@v0.9.0) does - the
+// same [checks](@link:check@v0.4.0) - plus one it doesn't: that a target
 // whose documentation changed since a comparison base also bumped its
 // version and changelog. Nothing is ever rendered to HTML or written to
 // disk, and there is no `--out` flag. Use it as a fast local/CI gate to

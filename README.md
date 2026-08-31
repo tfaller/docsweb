@@ -167,11 +167,12 @@ must in turn self-declare exactly:
 name: pathBased
 ```
 
-A `git:` scope is resolved the same way, except its file tree comes from a clone instead of a local
-directory: the repository at `git` is cloned (or, on a later build, fetched) into a `docsweb-cache`
-directory next to the root `.docsweb.yaml`, checked out to `ref` (a branch, tag, or commit; the
-repository's default branch if `ref` is omitted), and `path` is then resolved inside that clone the
-same way it would be inside a local checkout. From there on a remote scope behaves exactly like a
+A `git:` scope is resolved the same way, except its file tree comes from git's own object store
+instead of a local directory: the repository at `git` is mirrored *bare* (or, on a later build,
+fetched) into a `docsweb-cache` directory next to the root `.docsweb.yaml`, `ref` (a branch, tag,
+or commit; the repository's default branch if `ref` is omitted) is resolved to a commit, and
+`path` is then resolved inside that commit's tree - read directly out of git, with no worktree
+ever checked out to disk. From there on a remote scope behaves exactly like a
 local one - its own `.docsweb.yaml` must still self-declare the expected name, targets link and
 `@uses` across scopes the same way, and `ignore:` still only applies to the root scope's own
 directory (a remote scope's content is someone else's repository, so the root's `ignore:` rules

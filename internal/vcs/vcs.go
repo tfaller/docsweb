@@ -5,44 +5,53 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.3.0
+// @define vcs v0.4.0
 // @name VCS
 // @summary
-// Git lookups: blame (who last touched a given source line), clone/fetch a
-// remote repository into a local cache, and, given a revision, a
-// repository's merge base and a file's committed contents - used to
-// attribute a version bump to its author, materialize a remote scope
-// locally, and diff documentation against an older revision.
+// Git lookups: blame (who last touched a given source line), opening a
+// remote repository's resolved commit into a local cache with no worktree
+// checkout, and, given a revision, a repository's merge base and a file's
+// committed contents - used to attribute a version bump to its author,
+// materialize a remote scope's file tree, and diff documentation against an
+// older revision.
 // @audience dev
 // @changelog
-// New `CloneOrFetch(cacheDir, repoURL, ref)`: ensures a local, up-to-date
-// clone of repoURL exists under cacheDir, checked out to ref (a branch,
-// tag, or commit SHA - resolved in that order - or the repository's
-// default branch when ref is empty), and returns that clone's working-tree
-// root. A repeat call against the same cacheDir/repoURL fetches instead of
-// re-cloning. Used by [check](@link:check@v0.2.0)'s scope collection to
-// materialize a `git:` referenced scope (see README.md's "Scopes" section)
-// before walking it. Non-breaking; every existing export's behavior is
-// unchanged.
+// **`CloneOrFetch` is replaced by `OpenScope(cacheDir, repoURL, ref)`,
+// which never checks a worktree out to disk.** It still ensures a local,
+// up-to-date mirror of repoURL exists under cacheDir (cloning on first use,
+// fetching `origin` into that same mirror on every later call) and resolves
+// ref the same way (a branch, tag, or commit SHA, in that order, or the
+// repository's default branch when ref is empty) - but the mirror is now
+// *bare*, and instead of a working-tree root, OpenScope returns a read-only
+// `fs.FS` over the resolved commit's file tree (via
+// `github.com/tfaller/go-git-fs`'s `OpenFromCommit`, reading straight out
+// of git's object store) alongside a `Repository` already pinned to that
+// same commit, ready for `BlameAuthor`/`FileContents` lookups with no
+// on-disk root to discover - a bare mirror holds only git's history/object
+// data, which is both smaller and avoids ever having to reconcile a stale
+// working tree. Used by [check](@link:check@v0.4.0)'s scope collection to
+// materialize a `git:` referenced scope's file tree (see README.md's
+// "Scopes" section) before walking it. Breaking: `CloneOrFetch` is gone.
 // @doc
 // # VCS
 //
 // `vcs` depends on no other docsweb package; it wraps
-// `github.com/go-git/go-git/v6`.
+// `github.com/go-git/go-git/v6` and, for `OpenScope`,
+// `github.com/tfaller/go-git-fs`.
 //
-// `CloneOrFetch` is how a remote (`git:`) scope gets materialized onto
-// disk: it clones repoURL into a deterministic, hashed subdirectory of
-// cacheDir on first use, or fetches `origin` into that same clone on every
-// later call, then checks the worktree out to `ref`'s resolved commit
-// (`Force`, so any local drift - there shouldn't be any, since nothing
-// else ever writes into the cache - is discarded rather than conflicting).
-// `ref` resolution tries, in order: a remote-tracking branch
-// (`origin/<ref>`), a tag, then any revision `ResolveRevision` itself
-// understands (a commit SHA, `HEAD`, ...). An empty `ref` tracks the
-// repository's default branch across repeat calls by resolving through
-// that same clone's one local branch ref (created once, by the initial
-// clone, and never touched again) rather than through `HEAD` itself, since
-// every checkout here leaves `HEAD` detached.
+// `OpenScope` is how a remote (`git:`) scope's file tree is read, with no
+// worktree ever checked out to disk: it mirrors repoURL *bare* into a
+// deterministic, hashed subdirectory of cacheDir on first use, or fetches
+// `origin` into that same mirror on every later call, resolves `ref` to a
+// commit, and returns both an `fs.FS` over that commit's tree (via
+// `gitfs.OpenFromCommit`) and a `Repository` pinned to it. `ref` resolution
+// tries, in order: a remote-tracking branch (`origin/<ref>`), a tag, then
+// any revision `ResolveRevision` itself understands (a commit SHA, `HEAD`,
+// ...). An empty `ref` tracks the repository's default branch across repeat
+// calls by resolving through that same mirror's one local branch ref
+// (created once, by the initial clone, and never touched again) rather
+// than through `HEAD` itself, since a fetch only ever moves the matching
+// remote-tracking ref.
 //
 // `Open` discovers the git repository containing a directory (walking
 // upward for a `.git` entry, like the git CLI) and returns a `Repository`
@@ -52,19 +61,24 @@ package vcs
 // is optional, best-effort metadata, not something a docsweb build should
 // fail over.
 //
-// `Repository.BlameAuthor` blames one line of one file. It's given a
-// 1-based line number (checked first, as a fast path) and a substring to
-// find - not the line's exact text, so a caller never has to re-read the
-// file just to reconstruct it; the substring can be built purely from
-// already-in-memory structured data (e.g. a target's name and version).
-// Falling back to a full scan for that substring, rather than trusting the
-// line number outright, makes this robust against the common case where a
-// caller parsed a file's current working-tree contents (which may have
-// uncommitted edits elsewhere) rather than the exact blob HEAD has
-// committed - a pure line-number lookup would silently blame the wrong
-// line whenever unrelated edits shifted line numbers. Returns `ok == false`
-// (no error) when the file isn't tracked at HEAD, or no line matches at
-// all - again, best-effort rather than a hard failure.
+// `Repository.BlameAuthor` blames one line of one file, against whichever
+// commit the `Repository` is pinned to (HEAD, for one opened via `Open`).
+// It's given a 1-based line number (checked first, as a fast path) and a
+// substring to find - not the line's exact text, so a caller never has to
+// re-read the file just to reconstruct it; the substring can be built
+// purely from already-in-memory structured data (e.g. a target's name and
+// version). Falling back to a full scan for that substring, rather than
+// trusting the line number outright, makes this robust against the common
+// case where a caller parsed a file's current working-tree contents (which
+// may have uncommitted edits elsewhere) rather than the exact committed
+// blob - a pure line-number lookup would silently blame the wrong line
+// whenever unrelated edits shifted line numbers. Returns `ok == false` (no
+// error) when the file isn't tracked at that commit, or no line matches at
+// all - again, best-effort rather than a hard failure. The path it's given
+// is either an absolute OS path (for a `Repository` opened via `Open`,
+// resolved relative to the discovered working-tree root) or already a
+// repository-tree-relative path (for one opened via `OpenScope`, which has
+// no working tree to resolve against).
 //
 // `Repository.Commit` resolves any revision string to a `Commit`.
 // `Repository.MergeBase` resolves two revisions and returns their common
@@ -192,13 +206,14 @@ func (r *Repository) MergeBase(revA, revB string) (*Commit, error) {
 	return bases[0], nil
 }
 
-// FileContents returns the contents of the file at absPath (an absolute
-// path inside the repository) as committed in c. ok is false, without an
-// error, if that file did not exist in c yet (e.g. it was added afterwards)
-// - a caller diffing documentation against a base revision should treat a
-// brand-new file as "nothing to compare against", not a hard failure.
-func (r *Repository) FileContents(c *Commit, absPath string) (content string, ok bool, err error) {
-	rel, err := r.relPath(absPath)
+// FileContents returns the contents of the file at path (see relPath's doc
+// for what path means for a Repository opened via Open vs OpenScope) as
+// committed in c. ok is false, without an error, if that file did not exist
+// in c yet (e.g. it was added afterwards) - a caller diffing documentation
+// against a base revision should treat a brand-new file as "nothing to
+// compare against", not a hard failure.
+func (r *Repository) FileContents(c *Commit, path string) (content string, ok bool, err error) {
+	rel, err := r.relPath(path)
 	if err != nil {
 		return "", false, err
 	}
@@ -236,21 +251,23 @@ func findRepoRoot(dir string) (string, bool) {
 	}
 }
 
-// BlameAuthor returns who introduced the line at absPath (an absolute path
-// inside the repository) containing the substring contains, per git blame
-// against HEAD. line is a 1-based hint into the file's current line
-// numbering, checked first as a fast path; if that line doesn't contain the
-// substring (e.g. unrelated edits elsewhere in the working tree shifted line
-// numbers since the last commit), every blamed line is scanned in order and
-// the first match wins. Matching by substring rather than requiring the
-// caller to reproduce a line verbatim means BlameAuthor never needs a
-// caller to re-read the file - the substring can be built purely from
-// already-in-memory structured data (e.g. a target's name and version).
-// Returns ok == false, without error, if the file isn't tracked at HEAD or
-// no line contains it at all - this is best-effort metadata, not something
-// a caller should treat as fatal.
-func (r *Repository) BlameAuthor(absPath string, line int, contains string) (author Author, ok bool, err error) {
-	rel, err := r.relPath(absPath)
+// BlameAuthor returns who introduced the line at path (see relPath's doc
+// for what path means for a Repository opened via Open vs OpenScope)
+// containing the substring contains, per git blame against the
+// Repository's pinned commit (HEAD, for one opened via Open). line is a
+// 1-based hint into the file's current line numbering, checked first as a
+// fast path; if that line doesn't contain the substring (e.g. unrelated
+// edits elsewhere in the working tree shifted line numbers since the last
+// commit), every blamed line is scanned in order and the first match wins.
+// Matching by substring rather than requiring the caller to reproduce a
+// line verbatim means BlameAuthor never needs a caller to re-read the file
+// - the substring can be built purely from already-in-memory structured
+// data (e.g. a target's name and version). Returns ok == false, without
+// error, if the file isn't tracked at that commit or no line contains it at
+// all - this is best-effort metadata, not something a caller should treat
+// as fatal.
+func (r *Repository) BlameAuthor(path string, line int, contains string) (author Author, ok bool, err error) {
+	rel, err := r.relPath(path)
 	if err != nil {
 		return Author{}, false, err
 	}
@@ -280,13 +297,21 @@ func (r *Repository) BlameAuthor(absPath string, line int, contains string) (aut
 	return Author{}, false, nil
 }
 
-// relPath converts an absolute path inside the repository into the
-// slash-separated, root-relative form every go-git lookup (blame, tree
-// entries) expects.
-func (r *Repository) relPath(absPath string) (string, error) {
-	rel, err := filepath.Rel(r.root, absPath)
+// relPath converts path into the slash-separated, repository-tree-relative
+// form every go-git lookup (blame, tree entries) expects. For a Repository
+// discovered via Open (a real on-disk working tree), path is an absolute OS
+// path inside that tree, resolved relative to the discovered root. For a
+// Repository opened directly against a resolved commit via OpenScope (e.g.
+// a remote scope's bare mirror, which has no working tree on disk at all,
+// so r.root is unset), there is no root to resolve against, and path is
+// taken as already being that relative form.
+func (r *Repository) relPath(path string) (string, error) {
+	if r.root == "" {
+		return path, nil
+	}
+	rel, err := filepath.Rel(r.root, path)
 	if err != nil {
-		return "", fmt.Errorf("vcs: %s is not under repository root %s: %w", absPath, r.root, err)
+		return "", fmt.Errorf("vcs: %s is not under repository root %s: %w", path, r.root, err)
 	}
 	return filepath.ToSlash(rel), nil
 }

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 
 func TestResolveUsesClassifiesOutdated(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/resolve"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/resolve")}))
 
 	issues, err := ResolveUses(reg)
 	require.NoError(t, err)
@@ -40,7 +41,7 @@ func TestResolveUsesClassifiesOutdated(t *testing.T) {
 
 func TestResolveUsesErrorsOnMissingTarget(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/missing"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/missing")}))
 
 	_, err := ResolveUses(reg)
 	require.Error(t, err)
@@ -49,7 +50,7 @@ func TestResolveUsesErrorsOnMissingTarget(t *testing.T) {
 
 func TestComputeUsedByInvertsUses(t *testing.T) {
 	reg := collect.NewRegistry()
-	require.NoError(t, reg.AddScope(collect.Options{Root: "testdata/resolve"}))
+	require.NoError(t, reg.AddScope(collect.Options{Root: os.DirFS("testdata/resolve")}))
 
 	usedBy := ComputeUsedBy(reg)
 
