@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,20 +134,27 @@ func TestGenerate_HistoricVersionPages(t *testing.T) {
 		DisplayName: "Application",
 	}
 
+	currentCommitTime := time.Date(2026, 3, 2, 10, 30, 0, 0, time.UTC)
+	oldCommitTime := time.Date(2026, 1, 5, 8, 0, 0, 0, time.UTC)
+
 	result := &build.Result{
 		Targets: []build.RenderedTarget{
 			{
-				Target:  target,
-				DocHTML: "<p>Current documentation.</p>",
+				Target:     target,
+				DocHTML:    "<p>Current documentation.</p>",
+				CommitHash: "abc1234",
+				CommitTime: currentCommitTime,
 				Versions: []build.VersionLink{
-					{Version: v("v2.0.0"), URL: "app.html", Current: true},
-					{Version: v("v1.0.0"), URL: "app/v1.0.0.html"},
+					{Version: v("v2.0.0"), URL: "app.html", Current: true, CommitHash: "abc1234", CommitTime: currentCommitTime},
+					{Version: v("v1.0.0"), URL: "app/v1.0.0.html", CommitHash: "def5678", CommitTime: oldCommitTime},
 				},
 				History: []build.HistoricVersion{
 					{
-						Target:  oldTarget,
-						DocHTML: "<p>Old documentation.</p>",
-						Author:  "Alice <alice@example.com>",
+						Target:     oldTarget,
+						DocHTML:    "<p>Old documentation.</p>",
+						Author:     "Alice <alice@example.com>",
+						CommitHash: "def5678",
+						CommitTime: oldCommitTime,
 					},
 				},
 			},
@@ -163,6 +171,14 @@ func TestGenerate_HistoricVersionPages(t *testing.T) {
 	// a link down into its own subdirectory.
 	assert.Contains(t, current, "<strong>v2.0.0 (current)</strong>")
 	assert.Contains(t, current, `<a href="app/v1.0.0.html">v1.0.0</a>`)
+	// General metadata section shows the current version's own commit.
+	assert.Contains(t, current, "Committed 2026-03-02 10:30 UTC")
+	assert.Contains(t, current, "Commit <code>abc1234</code>")
+	// The version list shows each entry's own commit metadata too.
+	assert.Contains(t, current, "2026-03-02 10:30 UTC")
+	assert.Contains(t, current, "<code>abc1234</code>")
+	assert.Contains(t, current, "2026-01-05 08:00 UTC")
+	assert.Contains(t, current, "<code>def5678</code>")
 
 	old := readFile(t, filepath.Join(outDir, "app", "v1.0.0.html"))
 	assert.Contains(t, old, "Old documentation.")
@@ -173,6 +189,24 @@ func TestGenerate_HistoricVersionPages(t *testing.T) {
 	// shown as plain text.
 	assert.Contains(t, old, `<a href="../app.html">v2.0.0 (current)</a>`)
 	assert.Contains(t, old, "<strong>v1.0.0</strong>")
+	// This page's own meta section reflects its own (older) commit.
+	assert.Contains(t, old, "Committed 2026-01-05 08:00 UTC")
+	assert.Contains(t, old, "Commit <code>def5678</code>")
+}
+
+// TestGenerate_NoCommitMetadata confirms the commit hash/timestamp fragments
+// are omitted entirely - both in a page's general metadata section and its
+// version list - when internal/build left them empty (no git repository, or
+// history discovery found nothing for that version).
+func TestGenerate_NoCommitMetadata(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	app := readFile(t, filepath.Join(outDir, "app.html"))
+	assert.NotContains(t, app, "Committed")
+	assert.NotContains(t, app, "Commit <code>")
 }
 
 func readFile(t *testing.T, path string) string {

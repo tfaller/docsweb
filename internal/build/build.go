@@ -1,7 +1,7 @@
 package build
 
 // @docsweb
-// @define build v0.10.0
+// @define build v0.11.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
@@ -14,40 +14,19 @@ package build
 // @uses vcs@v0.5.0
 // @audience dev
 // @changelog
-// **Past target versions are now discovered and rendered.** After
-// [check.RunForBuild](@link:check@v0.1.0), `Run` walks the root scope's own
-// git history via [history.Walk](@link:history@v0.1.0) and builds, for
-// every target, a `Versions` list (current plus every past version found)
-// and a `History` list of fully rendered past-version snapshots - one
-// additional page per entry, at `HistoricTargetURL`. Best-effort, like
-// blame attribution: outside of a git repository, or for a target in a
-// remote scope (out of scope for `history.Walk`, see its own doc),
-// `Versions` simply holds only the current entry and `History` is empty -
-// never a build failure. A historic snapshot renders leniently (see
-// `mdlink.RenderDocLenient`): a broken `@link`/`@uses`/anchor in old content
-// degrades to plain text rather than failing the build, since a past commit
-// can't be fixed after the fact.
-//
-// **`@uses`/`@link` now resolve to the exact version they name, when one
-// was discovered, instead of always the target's current version.** Both
-// the structured `Uses` list (new `RenderedTarget.Uses`/`HistoricVersion.
-// Uses`, resolved by `resolveUses`) and prose `@link:`s (via the new
-// `versionResolver`, replacing `registryResolver`) look a reference's exact
-// version up across every known version of its target - current and
-// historic - before falling back to the current version, the same
-// resolution `registryResolver` always did. This matters most for a
-// historic page: its own `@uses`/`@link`s were written against whatever
-// versions existed *at that point in history*, and now correctly link to
-// those specific past pages rather than always jumping to what's current
-// today.
-//
-// Breaking for direct callers of `RenderedTarget`/`Result` construction
-// (e.g. `internal/site`'s tests): `RenderedTarget` gained `Uses`, `Versions`,
-// and `History`; a hand-built one with no history simply leaves them empty,
-// same as a real build outside of a git repository would.
-//
-// `@uses check@v0.4.0` also bumped to `check`'s current `v0.5.0` (itself
-// just a refreshed `mdlink`/`vcs` reference, no behavior change there).
+// **Every version now carries its own introducing commit's hash and
+// timestamp.** `RenderedTarget`/`HistoricVersion`/`VersionLink` all gained
+// `CommitHash` (short, 7 hex digits) and `CommitTime` (the committer
+// timestamp), alongside the existing `Author`. The data was already flowing
+// through unused: [history.Walk](@link:history@v0.1.0) rediscovers a
+// target's *current* version too (per its own doc), but `addHistoricVersions`
+// previously discarded that entry's commit with a bare `continue` once it
+// matched the live registry's version - it's now captured onto the current
+// `versionEntry` instead, so `commitMeta` (new, wrapping `vcs.Commit.Hash`/
+// `.Committer.When`) has something to read for the current version, exactly
+// like it already did for a historic one via `renderHistoricVersion`.
+// Best-effort, same as `Author`: empty/zero outside of a git repository, for
+// a remote-scope target, or whenever no introducing commit was discovered.
 // @doc
 // # Build
 //
@@ -91,6 +70,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/tfaller/docsweb/internal/check"
 	"github.com/tfaller/docsweb/internal/history"
@@ -132,6 +112,14 @@ type RenderedTarget struct {
 	// matched in the committed blob. Best-effort informational metadata,
 	// never a hard build requirement.
 	Author string
+	// CommitHash is the short (7-hex-digit) hash of the commit that
+	// introduced this version - the same commit BlameAuthor-style attribution
+	// walks back to, per internal/history's added-@define-line detection.
+	// "" under the same best-effort conditions as Author.
+	CommitHash string
+	// CommitTime is when CommitHash was committed (its committer timestamp).
+	// The zero time under the same best-effort conditions as Author.
+	CommitTime time.Time
 	// Uses resolves every one of Target.Uses to a specific page: the exact
 	// version referenced, if internal/history discovered it, else the
 	// target's current version - see versionResolver.lookup.
@@ -156,6 +144,11 @@ type VersionLink struct {
 	Version model.Version
 	URL     string
 	Current bool
+	// CommitHash and CommitTime are this version's own introducing commit's
+	// short hash and committer timestamp - see RenderedTarget.CommitHash for
+	// what an empty/zero value means.
+	CommitHash string
+	CommitTime time.Time
 }
 
 // UseLink resolves one Target.Uses reference to the page it should link to.
@@ -179,6 +172,11 @@ type HistoricVersion struct {
 	// commit internal/history found it at - see RenderedTarget.Author for
 	// what "" means.
 	Author string
+	// CommitHash and CommitTime are this version's own introducing commit's
+	// short hash and committer timestamp - see RenderedTarget.CommitHash for
+	// what an empty/zero value means.
+	CommitHash string
+	CommitTime time.Time
 	// Uses is this version's own Target.Uses, resolved the same way as
 	// RenderedTarget.Uses.
 	Uses []UseLink
@@ -283,6 +281,7 @@ func Run(opts Options) (*Result, error) {
 			Uses:     resolveUses(t.Uses, versionsByKey, targetURL),
 			Versions: versionLinks(versions),
 		}
+		rt.CommitHash, rt.CommitTime = commitMeta(versions[0].commit)
 
 		var repo *vcs.Repository
 		var sourcePath string
@@ -353,7 +352,10 @@ type versionEntry struct {
 
 // addHistoricVersions appends every version history.Walk found (other than
 // a target's current one, already versionsByKey's index 0) to its target's
-// entry, newest version first.
+// entry, newest version first. history.Walk also rediscovers the current
+// version's own introducing commit (its own doc: "including the entry for
+// the target's current version") - captured onto the current entry itself
+// (cur[0]) rather than appended, since it's the same version, not a past one.
 func addHistoricVersions(versionsByKey map[string][]versionEntry, found map[string][]history.Version) {
 	for key, hvs := range found {
 		cur, ok := versionsByKey[key]
@@ -365,6 +367,8 @@ func addHistoricVersions(versionsByKey map[string][]versionEntry, found map[stri
 		var historic []versionEntry
 		for _, hv := range hvs {
 			if hv.Target.Version.Equal(currentVersion) {
+				cur[0].commit = hv.Commit
+				cur[0].path = hv.Path
 				continue
 			}
 			historic = append(historic, versionEntry{
@@ -407,9 +411,21 @@ func collectAnchors(t *model.Target) map[string]bool {
 func versionLinks(entries []versionEntry) []VersionLink {
 	links := make([]VersionLink, len(entries))
 	for i, e := range entries {
-		links[i] = VersionLink{Version: e.target.Version, URL: e.url, Current: i == 0}
+		hash, when := commitMeta(e.commit)
+		links[i] = VersionLink{Version: e.target.Version, URL: e.url, Current: i == 0, CommitHash: hash, CommitTime: when}
 	}
 	return links
+}
+
+// commitMeta returns c's short (7-hex-digit) hash and committer timestamp,
+// or ("", zero time) if c is nil - the commit that introduced a version
+// couldn't be found (outside a git repository, a remote scope, or any other
+// best-effort condition RenderedTarget.CommitHash documents).
+func commitMeta(c *vcs.Commit) (hash string, when time.Time) {
+	if c == nil {
+		return "", time.Time{}
+	}
+	return c.Hash.String()[:7], c.Committer.When
 }
 
 // renderHistoricVersion attributes and renders one past version's Markdown,
@@ -420,6 +436,7 @@ func versionLinks(entries []versionEntry) []VersionLink {
 // nil (history.Walk never runs) and Author is simply left empty.
 func renderHistoricVersion(rootRepo *vcs.Repository, v versionEntry, versionsByKey map[string][]versionEntry) HistoricVersion {
 	hv := HistoricVersion{Target: v.target, Uses: resolveUses(v.target.Uses, versionsByKey, v.url)}
+	hv.CommitHash, hv.CommitTime = commitMeta(v.commit)
 	if rootRepo != nil && v.commit != nil {
 		absPath := filepath.Join(rootRepo.Root(), filepath.FromSlash(v.path))
 		hv.Author = blameAuthorAt(rootRepo, v.commit, absPath, v.target)

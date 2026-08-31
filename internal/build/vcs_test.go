@@ -8,6 +8,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +53,14 @@ func TestRunAttributesVersionToItsGitBlameAuthor(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Targets, 1)
 	require.Equal(t, "Alice <alice@example.com>", result.Targets[0].Author)
+	// The version's introducing commit is the same one history.Walk finds
+	// via its added-@define-line detection - its short hash and committer
+	// timestamp (defaulted to the author's, since none was set explicitly).
+	assert.Len(t, result.Targets[0].CommitHash, 7)
+	assert.WithinDuration(t, alice.When, result.Targets[0].CommitTime, time.Second)
+	require.Len(t, result.Targets[0].Versions, 1)
+	assert.Equal(t, result.Targets[0].CommitHash, result.Targets[0].Versions[0].CommitHash)
+	assert.WithinDuration(t, alice.When, result.Targets[0].Versions[0].CommitTime, time.Second)
 }
 
 func TestRunLeavesAuthorEmptyOutsideGitRepository(t *testing.T) {
@@ -69,4 +78,6 @@ func TestRunLeavesAuthorEmptyOutsideGitRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Targets, 1)
 	require.Empty(t, result.Targets[0].Author)
+	assert.Empty(t, result.Targets[0].CommitHash)
+	assert.True(t, result.Targets[0].CommitTime.IsZero())
 }

@@ -108,6 +108,18 @@ func TestRunDiscoversAndRendersHistoricVersions(t *testing.T) {
 	assert.Equal(t, "v1.0.0", app.Versions[1].Version.String())
 	assert.Equal(t, "proj/app/v1.0.0.html", app.Versions[1].URL)
 
+	// Current version (v1.1.0, the 3rd commit) and its historic v1.0.0 (the
+	// 1st commit) are each attributed to their own distinct introducing
+	// commit - not to the same (e.g. HEAD's) commit.
+	assert.Len(t, app.CommitHash, 7)
+	assert.NotEqual(t, app.CommitHash, app.History[0].CommitHash)
+	assert.Equal(t, app.CommitHash, app.Versions[0].CommitHash)
+	assert.Equal(t, app.History[0].CommitHash, app.Versions[1].CommitHash)
+	wantCurrent := historyCommitSeq // set by the 3rd (most recent) repo.commit() call above
+	assert.WithinDuration(t, wantCurrent, app.CommitTime, 0)
+	wantHistoric := wantCurrent.Add(-2 * time.Hour) // the 1st repo.commit() call
+	assert.WithinDuration(t, wantHistoric, app.History[0].CommitTime, 0)
+
 	helper := byKey["proj.helper"]
 	require.NotNil(t, helper)
 	require.Len(t, helper.History, 1, "helper's v1.0.0 should be discovered as a past version")
@@ -145,4 +157,8 @@ func TestRunNoHistoryOutsideGitRepository(t *testing.T) {
 	assert.Empty(t, result.Targets[0].History)
 	require.Len(t, result.Targets[0].Versions, 1)
 	assert.True(t, result.Targets[0].Versions[0].Current)
+	assert.Empty(t, result.Targets[0].CommitHash)
+	assert.True(t, result.Targets[0].CommitTime.IsZero())
+	assert.Empty(t, result.Targets[0].Versions[0].CommitHash)
+	assert.True(t, result.Targets[0].Versions[0].CommitTime.IsZero())
 }

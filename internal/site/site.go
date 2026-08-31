@@ -4,32 +4,22 @@
 package site
 
 // @docsweb
-// @define site v0.4.0
+// @define site v0.5.0
 // @name Site
 // @summary
 // Renders a build.Result into a static HTML site: one page per target
 // version (current and past), one dedicated outdated-uses page, and an
 // index page linking everything together.
-// @uses build@v0.10.0
+// @uses build@v0.11.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// **A past target version now gets its own page.** For every
-// `RenderedTarget.History` entry (a version [history.Walk](@link:history@v0.1.0)
-// discovered - see [build](@link:build@v0.10.0)), `writeTargetPage` writes
-// an additional page at `build.HistoricTargetURL`, alongside the current
-// version's own page at `build.TargetURL` as before. Both share a
-// "Versions" list (from `RenderedTarget.Versions`) linking every known
-// version of the target to its own page, and a historic page carries a
-// banner marking it as an old version and omits "Used by" (never tracked
-// for a past version - see `check.ComputeUsedBy`'s doc). The "Uses" list on
-// every page (current or historic) now comes pre-resolved as `build.
-// UseLink` (via `build.RenderedTarget.Uses`/`HistoricVersion.Uses`) rather
-// than `Generate` looking each one up itself against the current registry -
-// necessary since a historic page's own `@uses` may resolve to another
-// historic page, not always the current one, which only `internal/build`'s
-// version-aware resolution (see its own changelog) can know. Breaking:
-// `writeTargetPage` (unexported) no longer takes a `byKey` map.
+// **A version's commit hash and timestamp are now shown** alongside
+// "Last bumped by" in a page's metadata line (`build.RenderedTarget`/
+// `HistoricVersion.CommitHash`/`CommitTime`, new in [build](@link:build@v0.11.0)),
+// and per-entry in the "Versions" list too (`build.VersionLink.CommitHash`/
+// `CommitTime`) - both omitted, per fragment, whenever empty/zero, same as
+// `Author` already was.
 // @doc
 // # Site
 //
@@ -75,6 +65,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/tfaller/docsweb/internal/build"
 	"github.com/tfaller/docsweb/internal/check"
@@ -142,6 +133,11 @@ type versionRow struct {
 	// Self is true for the row matching the page currently being rendered -
 	// shown as plain text rather than a (redundant) self-link.
 	Self bool
+	// CommitHash and CommitTime are this version's own introducing commit's
+	// short hash and formatted committer timestamp, or "" for both if
+	// unknown (see build.RenderedTarget.CommitHash).
+	CommitHash string
+	CommitTime string
 }
 
 type changelogItem struct {
@@ -155,7 +151,12 @@ type targetPageData struct {
 	Version     string
 	Audiences   string
 	Author      string
-	HasSummary  bool
+	// CommitHash and CommitTime describe this page's own version's
+	// introducing commit - short hash and formatted committer timestamp, or
+	// "" for both if unknown (see build.RenderedTarget.CommitHash).
+	CommitHash string
+	CommitTime string
+	HasSummary bool
 	SummaryHTML template.HTML
 	DocHTML     template.HTML
 	Uses        []useRef
@@ -174,14 +175,14 @@ type targetPageData struct {
 func writeTargetPage(outDir string, rt *build.RenderedTarget) error {
 	t := rt.Target
 	url := build.TargetURL(t.Ref())
-	data := buildTargetPageData(t, rt.SummaryHTML, rt.DocHTML, rt.ChangelogHTML, rt.Author, rt.Uses, rt.UsedBy, rt.Versions, url, false)
+	data := buildTargetPageData(t, rt.SummaryHTML, rt.DocHTML, rt.ChangelogHTML, rt.Author, rt.CommitHash, rt.CommitTime, rt.Uses, rt.UsedBy, rt.Versions, url, false)
 	if err := renderPage(outDir, url, fmt.Sprintf("%s %s", data.DisplayName, data.Version), targetTmpl, data); err != nil {
 		return err
 	}
 
 	for _, h := range rt.History {
 		hurl := build.HistoricTargetURL(h.Target.Ref())
-		hdata := buildTargetPageData(h.Target, h.SummaryHTML, h.DocHTML, h.ChangelogHTML, h.Author, h.Uses, nil, rt.Versions, hurl, true)
+		hdata := buildTargetPageData(h.Target, h.SummaryHTML, h.DocHTML, h.ChangelogHTML, h.Author, h.CommitHash, h.CommitTime, h.Uses, nil, rt.Versions, hurl, true)
 		if err := renderPage(outDir, hurl, fmt.Sprintf("%s %s", hdata.DisplayName, hdata.Version), targetTmpl, hdata); err != nil {
 			return err
 		}
@@ -196,7 +197,8 @@ func buildTargetPageData(
 	t *model.Target,
 	summaryHTML, docHTML string,
 	changelog []build.ChangelogHTML,
-	author string,
+	author, commitHash string,
+	commitTime time.Time,
 	uses []build.UseLink,
 	usedBy []check.UsedByRef,
 	versions []build.VersionLink,
@@ -209,6 +211,8 @@ func buildTargetPageData(
 		Version:     t.Version.String(),
 		Audiences:   audienceLabel(t.Audiences),
 		Author:      author,
+		CommitHash:  commitHash,
+		CommitTime:  commitTimeLabel(commitTime),
 		DocHTML:     template.HTML(docHTML), //nolint:gosec // pre-rendered, trusted HTML from internal/build
 		IsHistoric:  historic,
 	}
@@ -242,7 +246,7 @@ func buildTargetPageData(
 		if v.Current {
 			label += " (current)"
 		}
-		row := versionRow{Label: label}
+		row := versionRow{Label: label, CommitHash: v.CommitHash, CommitTime: commitTimeLabel(v.CommitTime)}
 		if v.URL == pageURL {
 			row.Self = true
 		} else {
@@ -388,6 +392,16 @@ func audienceLabelOrWhole(auds []model.Audience) string {
 		return "whole target audience"
 	}
 	return joinAudiences(auds)
+}
+
+// commitTimeLabel formats a commit's committer timestamp for display, or ""
+// for the zero time - build.RenderedTarget.CommitTime's best-effort-unknown
+// case.
+func commitTimeLabel(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func joinAudiences(auds []model.Audience) string {

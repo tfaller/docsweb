@@ -101,13 +101,13 @@ var shellTmpl = template.Must(template.New("shell").Parse(`{{define "shell"}}<!d
 
 var targetTmpl = template.Must(template.New("target").Parse(`
 <h1>{{.DisplayName}}</h1>
-<p class="meta">Scope: {{.Scope}} &middot; Version: {{.Version}} &middot; Audience: {{.Audiences}}{{if .Author}} &middot; Last bumped by {{.Author}}{{end}}</p>
+<p class="meta">Scope: {{.Scope}} &middot; Version: {{.Version}} &middot; Audience: {{.Audiences}}{{if .Author}} &middot; Last bumped by {{.Author}}{{end}}{{if .CommitTime}} &middot; Committed {{.CommitTime}}{{end}}{{if .CommitHash}} &middot; Commit <code>{{.CommitHash}}</code>{{end}}</p>
 {{if .IsHistoric}}<p class="historic-banner">You are viewing an old version of this documentation.</p>{{end}}
 
 {{if gt (len .Versions) 1}}<section class="versions">
 <h2>Versions</h2>
 <ul class="plain">
-{{range .Versions}}<li>{{if .Self}}<strong>{{.Label}}</strong>{{else}}<a href="{{.URL}}">{{.Label}}</a>{{end}}</li>
+{{range .Versions}}<li>{{if .Self}}<strong>{{.Label}}</strong>{{else}}<a href="{{.URL}}">{{.Label}}</a>{{end}}{{if or .CommitTime .CommitHash}} &mdash;{{if .CommitTime}} {{.CommitTime}}{{end}}{{if .CommitHash}} <code>{{.CommitHash}}</code>{{end}}{{end}}</li>
 {{end}}</ul>
 </section>{{end}}
 
