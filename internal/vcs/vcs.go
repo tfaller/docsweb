@@ -5,17 +5,40 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.4.0
+// @define vcs v0.5.0
 // @name VCS
 // @summary
-// Git lookups: blame (who last touched a given source line), opening a
-// remote repository's resolved commit into a local cache with no worktree
-// checkout, and, given a revision, a repository's merge base and a file's
-// committed contents - used to attribute a version bump to its author,
-// materialize a remote scope's file tree, and diff documentation against an
+// Git lookups: blame (who last touched a given source line, at any commit -
+// not just the one a Repository is pinned to), opening a remote repository's
+// resolved commit into a local cache with no worktree checkout, walking a
+// repository's first-parent commit history, and, given a revision, a
+// repository's merge base and a file's committed contents - used to
+// attribute a version bump to its author, materialize a remote scope's file
+// tree, discover past target versions, and diff documentation against an
 // older revision.
 // @audience dev
 // @changelog
+// New history-walking primitives, added for
+// [history](@link:history@v0.1.0)'s use: `WalkFirstParent(start, fn)` calls
+// fn once per commit reached by following first parents backward from
+// start, `DiffStep(step)` computes the file-level changes between one such
+// step's two commits (`Parent` is nil for the repository's root commit,
+// treated as "every file added"), and `Diff.Files`/`Diff.AddedLineContains`
+// answer exactly the two questions a caller needs to decide whether a
+// commit is worth acting on - which files changed, and whether a path
+// gained a line containing some substring (matching `BlameAuthor`'s own
+// substring-not-exact-line philosophy). `Repository.BlameAuthor` is now
+// `Repository.BlameAuthorAt(commit, ...)` under the hood (a thin
+// `BlameAuthor` wrapper pinning `commit` to `Repository`'s own one remains,
+// non-breaking), so a caller can blame the same path against many different
+// commits in one `Repository`'s lifetime, not only the one it's pinned to -
+// needed to attribute a historic target version to whoever introduced it.
+// `Repository.Root`/`Repository.PinnedCommit` expose what were previously
+// private fields, for the same reason: a caller walking history needs the
+// working-tree root to translate a commit diff's repository-relative paths
+// back into the absolute OS paths every other lookup here expects, and a
+// starting point for the walk itself.
+//
 // **`CloneOrFetch` is replaced by `OpenScope(cacheDir, repoURL, ref)`,
 // which never checks a worktree out to disk.** It still ensures a local,
 // up-to-date mirror of repoURL exists under cacheDir (cloning on first use,
@@ -89,6 +112,21 @@ package vcs
 // that file didn't exist yet in that commit - a caller diffing
 // documentation against an older revision should treat a brand-new file as
 // "nothing to compare against", not a failure.
+//
+// `WalkFirstParent(start, fn)` walks a commit's history backward, one first
+// parent at a time, calling `fn` with each `Step` (a commit and its parent -
+// nil for the root commit) until `fn` says to stop or the root commit is
+// reached. `DiffStep(step)` turns a `Step` into a `Diff`: `Files` lists every
+// file that changed, `AddedLineContains(path, substr)` reports whether that
+// file gained a line containing substr - the same substring-matching
+// philosophy as `BlameAuthor`, so a caller can check for a tag like
+// `@define` without needing a full parse. `Repository.BlameAuthorAt(commit,
+// ...)` blames against an arbitrary commit rather than only the one
+// `Repository` is pinned to (`BlameAuthor` remains as a thin wrapper for
+// that pinned-commit case). Together, these are what
+// [history](@link:history@v0.1.0) uses to discover a target's past
+// versions without needing a full `collect.AddScope` walk of every commit's
+// tree.
 // @docsweb
 
 import (
@@ -140,7 +178,28 @@ type Repository struct {
 	root   string
 	repo   *git.Repository
 	commit *object.Commit
-	blame  map[string]*git.BlameResult
+	blame  map[blameKey]*git.BlameResult
+}
+
+// blameKey caches a BlameAuthorAt result per (commit, path) pair, since
+// historic-version lookups blame the same path against many different
+// commits within one Repository, not just the single commit it's pinned to.
+type blameKey struct {
+	commit plumbing.Hash
+	path   string
+}
+
+// Root returns the absolute path to the working tree Repository was opened
+// against via Open, or "" for one opened via OpenScope, which has no
+// worktree on disk at all.
+func (r *Repository) Root() string {
+	return r.root
+}
+
+// PinnedCommit returns the commit Repository is pinned to - HEAD, for one
+// opened via Open, or whatever commit OpenScope resolved ref to.
+func (r *Repository) PinnedCommit() *Commit {
+	return r.commit
 }
 
 // Open discovers the git repository containing dir (walking upward for a
@@ -164,7 +223,7 @@ func Open(dir string) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vcs: reading HEAD commit: %w", err)
 	}
-	return &Repository{root: root, repo: repo, commit: commit, blame: map[string]*git.BlameResult{}}, nil
+	return &Repository{root: root, repo: repo, commit: commit, blame: map[blameKey]*git.BlameResult{}}, nil
 }
 
 // Commit resolves rev - a full/abbreviated SHA, branch/tag name, "HEAD",
@@ -267,20 +326,30 @@ func findRepoRoot(dir string) (string, bool) {
 // all - this is best-effort metadata, not something a caller should treat
 // as fatal.
 func (r *Repository) BlameAuthor(path string, line int, contains string) (author Author, ok bool, err error) {
+	return r.BlameAuthorAt(r.commit, path, line, contains)
+}
+
+// BlameAuthorAt is like BlameAuthor, but blames against an explicit commit
+// rather than the Repository's pinned one - used to attribute a historic
+// target version (reconstructed from some ancestor commit) to whoever
+// introduced it, the same way BlameAuthor attributes the current version
+// against HEAD.
+func (r *Repository) BlameAuthorAt(commit *Commit, path string, line int, contains string) (author Author, ok bool, err error) {
 	rel, err := r.relPath(path)
 	if err != nil {
 		return Author{}, false, err
 	}
 
-	result, cached := r.blame[rel]
+	key := blameKey{commit: commit.Hash, path: rel}
+	result, cached := r.blame[key]
 	if !cached {
-		result, err = git.Blame(r.commit, rel)
+		result, err = git.Blame(commit, rel)
 		if err != nil {
-			// Not tracked at HEAD (new/untracked file, or moved/renamed) -
-			// not an error, just no answer.
+			// Not tracked at that commit (new/untracked file, or
+			// moved/renamed) - not an error, just no answer.
 			return Author{}, false, nil
 		}
-		r.blame[rel] = result
+		r.blame[key] = result
 	}
 
 	if contains == "" {

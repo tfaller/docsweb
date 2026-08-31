@@ -57,7 +57,7 @@ func OpenScope(cacheDir, repoURL, ref string) (fs.FS, *Repository, error) {
 		return nil, nil, fmt.Errorf("vcs: opening tree of %s in %s: %w", hash, repoURL, err)
 	}
 
-	return treeFS, &Repository{repo: repo, commit: commit, blame: map[string]*git.BlameResult{}}, nil
+	return treeFS, &Repository{repo: repo, commit: commit, blame: map[blameKey]*git.BlameResult{}}, nil
 }
 
 // resolveCloneRef resolves ref against repo, trying it in turn as a local

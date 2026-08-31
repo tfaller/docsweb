@@ -50,6 +50,14 @@ var shellTmpl = template.Must(template.New("shell").Parse(`{{define "shell"}}<!d
   }
   .badge-major { background: #fee2e2; color: #991b1b; }
   .badge-minor { background: #dbeafe; color: #1e40af; }
+  .historic-banner {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.5rem 0.9rem;
+    border-radius: 0.35rem;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
   section { margin-bottom: 2rem; }
   ul.plain { list-style: none; padding-left: 0; }
   ul.plain li { margin-bottom: 0.35rem; }
@@ -94,6 +102,14 @@ var shellTmpl = template.Must(template.New("shell").Parse(`{{define "shell"}}<!d
 var targetTmpl = template.Must(template.New("target").Parse(`
 <h1>{{.DisplayName}}</h1>
 <p class="meta">Scope: {{.Scope}} &middot; Version: {{.Version}} &middot; Audience: {{.Audiences}}{{if .Author}} &middot; Last bumped by {{.Author}}{{end}}</p>
+{{if .IsHistoric}}<p class="historic-banner">You are viewing an old version of this documentation.</p>{{end}}
+
+{{if gt (len .Versions) 1}}<section class="versions">
+<h2>Versions</h2>
+<ul class="plain">
+{{range .Versions}}<li>{{if .Self}}<strong>{{.Label}}</strong>{{else}}<a href="{{.URL}}">{{.Label}}</a>{{end}}</li>
+{{end}}</ul>
+</section>{{end}}
 
 {{if .HasSummary}}<section class="summary">{{.SummaryHTML}}</section>{{end}}
 
@@ -109,10 +125,11 @@ var targetTmpl = template.Must(template.New("target").Parse(`
 
 <section class="used-by">
 <h2>Used by</h2>
-{{if .UsedBy}}<ul class="plain">
+{{if .IsHistoric}}<p><em>Not tracked for past versions.</em></p>
+{{else}}{{if .UsedBy}}<ul class="plain">
 {{range .UsedBy}}<li><a href="{{.URL}}">{{.Label}}</a></li>
 {{end}}</ul>
-{{else}}<p><em>No dependants.</em></p>{{end}}
+{{else}}<p><em>No dependants.</em></p>{{end}}{{end}}
 </section>
 
 <section class="changelog">

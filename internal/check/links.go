@@ -18,7 +18,7 @@ import (
 func checkLinks(ctx *context) error {
 	resolver := &linkResolver{reg: ctx.registry, anchors: ctx.anchors}
 	for _, t := range ctx.registry.Targets() {
-		for _, p := range targetPieces(t) {
+		for _, p := range t.Pieces() {
 			if _, err := mdlink.Preprocess(p, t.Scope, resolver); err != nil {
 				return fmt.Errorf("%s: %w", t.Key(), err)
 			}

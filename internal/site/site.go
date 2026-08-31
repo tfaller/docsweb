@@ -4,40 +4,56 @@
 package site
 
 // @docsweb
-// @define site v0.3.2
+// @define site v0.4.0
 // @name Site
 // @summary
-// Renders a build.Result into a static HTML site: one page per target,
-// one dedicated outdated-uses page, and an index page linking everything
-// together.
-// @uses build@v0.9.0
+// Renders a build.Result into a static HTML site: one page per target
+// version (current and past), one dedicated outdated-uses page, and an
+// index page linking everything together.
+// @uses build@v0.10.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// No behavior change - `@uses` reference bumped to
-// [build](@link:build@v0.9.0)'s current version following its move to
-// sourcing a remote scope's git-blame `Repository` from `check.Result`
-// instead of `vcs.Open`, which `Generate` here doesn't touch (it only reads
-// the already-populated `RenderedTarget.Author` field).
+// **A past target version now gets its own page.** For every
+// `RenderedTarget.History` entry (a version [history.Walk](@link:history@v0.1.0)
+// discovered - see [build](@link:build@v0.10.0)), `writeTargetPage` writes
+// an additional page at `build.HistoricTargetURL`, alongside the current
+// version's own page at `build.TargetURL` as before. Both share a
+// "Versions" list (from `RenderedTarget.Versions`) linking every known
+// version of the target to its own page, and a historic page carries a
+// banner marking it as an old version and omits "Used by" (never tracked
+// for a past version - see `check.ComputeUsedBy`'s doc). The "Uses" list on
+// every page (current or historic) now comes pre-resolved as `build.
+// UseLink` (via `build.RenderedTarget.Uses`/`HistoricVersion.Uses`) rather
+// than `Generate` looking each one up itself against the current registry -
+// necessary since a historic page's own `@uses` may resolve to another
+// historic page, not always the current one, which only `internal/build`'s
+// version-aware resolution (see its own changelog) can know. Breaking:
+// `writeTargetPage` (unexported) no longer takes a `byKey` map.
 // @doc
 // # Site
 //
 // `Generate` writes three kinds of page under an output directory, all
 // sharing one `html/template` page shell:
 //
-// - **A target page** per collected target, at
-//   [build.TargetURL](@link:build@v0.1.0)'s path: display name, version,
-//   audiences, rendered summary/doc, its resolved `@uses` list, a "Used
-//   by" list of every target that depends on it (the reverse of `@uses`,
-//   computed by `check.ComputeUsedBy` - no separate annotation needed),
-//   and its rendered changelog entries.
+// - **A target page** per known version of every collected target - its
+//   current version at [build.TargetURL](@link:build@v0.1.0)'s path, plus
+//   one more per `RenderedTarget.History` entry at `build.
+//   HistoricTargetURL` - showing display name, version, audiences,
+//   rendered summary/doc, its resolved `@uses` list (`build.UseLink`,
+//   already pointing at the exact version each reference named), a
+//   version-switcher list of every known version, a "Used by" list of
+//   every target that depends on it (current pages only - the reverse of
+//   `@uses`, computed by `check.ComputeUsedBy`), and its rendered
+//   changelog entries.
 // - **One [outdated-uses page](@link:build@v0.1.0#outdated)**
 //   (`_outdated.html`), grouping every major (breaking) and minor
 //   (informational) outdated `@uses` found during the build. Each row
 //   links to both the referencing and the referenced target, and shows
 //   the referenced target's *current* changelog entries as "what's
-//   changed since" - the POC has no version history to synthesize an
-//   exact range from.
+//   changed since" - the POC has no synthesized changelog range yet,
+//   though `internal/history` now has the raw data such a range could be
+//   built from (left for later).
 // - **An index page** (`index.html`), grouping every target by scope.
 //
 // Every page rendered gets an HTML template's default auto-escaping
@@ -61,6 +77,7 @@ import (
 	"strings"
 
 	"github.com/tfaller/docsweb/internal/build"
+	"github.com/tfaller/docsweb/internal/check"
 	"github.com/tfaller/docsweb/internal/model"
 )
 
@@ -93,7 +110,7 @@ func Generate(result *build.Result, outDir string) error {
 	}
 
 	for i := range result.Targets {
-		if err := writeTargetPage(outDir, &result.Targets[i], byKey); err != nil {
+		if err := writeTargetPage(outDir, &result.Targets[i]); err != nil {
 			return err
 		}
 	}
@@ -119,6 +136,14 @@ type usedByRef struct {
 	URL   string
 }
 
+type versionRow struct {
+	Label string
+	URL   string
+	// Self is true for the row matching the page currently being rendered -
+	// shown as plain text rather than a (redundant) self-link.
+	Self bool
+}
+
 type changelogItem struct {
 	Audiences string
 	HTML      template.HTML
@@ -135,56 +160,105 @@ type targetPageData struct {
 	DocHTML     template.HTML
 	Uses        []useRef
 	UsedBy      []usedByRef
-	Changelog   []changelogItem
+	// IsHistoric is true for a past-version page (build.RenderedTarget.
+	// History), which has no "used by" data of its own - internal/check
+	// only ever computes reverse @uses edges for the current registry.
+	IsHistoric bool
+	Versions   []versionRow
+	Changelog  []changelogItem
 }
 
-func writeTargetPage(outDir string, rt *build.RenderedTarget, byKey map[string]*build.RenderedTarget) error {
+// writeTargetPage writes rt's current-version page, plus one additional
+// page per entry in rt.History - every version internal/history discovered
+// gets its own page, all sharing the same version-switcher list.
+func writeTargetPage(outDir string, rt *build.RenderedTarget) error {
 	t := rt.Target
 	url := build.TargetURL(t.Ref())
+	data := buildTargetPageData(t, rt.SummaryHTML, rt.DocHTML, rt.ChangelogHTML, rt.Author, rt.Uses, rt.UsedBy, rt.Versions, url, false)
+	if err := renderPage(outDir, url, fmt.Sprintf("%s %s", data.DisplayName, data.Version), targetTmpl, data); err != nil {
+		return err
+	}
 
+	for _, h := range rt.History {
+		hurl := build.HistoricTargetURL(h.Target.Ref())
+		hdata := buildTargetPageData(h.Target, h.SummaryHTML, h.DocHTML, h.ChangelogHTML, h.Author, h.Uses, nil, rt.Versions, hurl, true)
+		if err := renderPage(outDir, hurl, fmt.Sprintf("%s %s", hdata.DisplayName, hdata.Version), targetTmpl, hdata); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildTargetPageData builds one page's data - the current version's, or one
+// historic version's - given that version's own already-rendered/resolved
+// pieces and the version list every page of this target shares.
+func buildTargetPageData(
+	t *model.Target,
+	summaryHTML, docHTML string,
+	changelog []build.ChangelogHTML,
+	author string,
+	uses []build.UseLink,
+	usedBy []check.UsedByRef,
+	versions []build.VersionLink,
+	pageURL string,
+	historic bool,
+) targetPageData {
 	data := targetPageData{
 		DisplayName: displayName(t),
 		Scope:       scopeLabel(t.Scope),
 		Version:     t.Version.String(),
 		Audiences:   audienceLabel(t.Audiences),
-		Author:      rt.Author,
-		DocHTML:     template.HTML(rt.DocHTML), //nolint:gosec // pre-rendered, trusted HTML from internal/build
+		Author:      author,
+		DocHTML:     template.HTML(docHTML), //nolint:gosec // pre-rendered, trusted HTML from internal/build
+		IsHistoric:  historic,
 	}
-	if strings.TrimSpace(rt.SummaryHTML) != "" {
+	if strings.TrimSpace(summaryHTML) != "" {
 		data.HasSummary = true
-		data.SummaryHTML = template.HTML(rt.SummaryHTML) //nolint:gosec // see above
+		data.SummaryHTML = template.HTML(summaryHTML) //nolint:gosec // see above
 	}
 
-	for _, use := range t.Uses {
-		ur := useRef{Label: fmt.Sprintf("%s@%s", use.Key(), use.Version)}
-		if used, ok := byKey[use.Key()]; ok {
-			ur.Found = true
-			ur.URL = build.RelLink(url, build.TargetURL(used.Target.Ref()))
-		} else {
-			// Unreachable in practice: build.Run's ResolveUses hard-errors
-			// before a Result with an unresolvable @uses is ever produced.
-			// Handled defensively here only so a hand-built Result (as in
-			// this package's own tests) can't panic.
-			ur.Label += " (unresolved)"
+	for _, u := range uses {
+		label := u.Label
+		if !u.Found {
+			// Unreachable for the current page in practice: build's checks
+			// hard-error before a Result with an unresolvable current @uses
+			// is ever produced. Reachable for a historic page, whose own
+			// @uses were never validated the way the current registry's
+			// are - see build.resolveUses.
+			label += " (unresolved)"
 		}
-		data.Uses = append(data.Uses, ur)
+		data.Uses = append(data.Uses, useRef{Label: label, URL: u.URL, Found: u.Found})
 	}
 
-	for _, ub := range rt.UsedBy {
+	for _, ub := range usedBy {
 		data.UsedBy = append(data.UsedBy, usedByRef{
 			Label: fmt.Sprintf("%s@%s", ub.User.Key(), ub.User.Version),
-			URL:   build.RelLink(url, build.TargetURL(ub.User)),
+			URL:   build.RelLink(pageURL, build.TargetURL(ub.User)),
 		})
 	}
 
-	for _, c := range rt.ChangelogHTML {
+	for _, v := range versions {
+		label := v.Version.String()
+		if v.Current {
+			label += " (current)"
+		}
+		row := versionRow{Label: label}
+		if v.URL == pageURL {
+			row.Self = true
+		} else {
+			row.URL = build.RelLink(pageURL, v.URL)
+		}
+		data.Versions = append(data.Versions, row)
+	}
+
+	for _, c := range changelog {
 		data.Changelog = append(data.Changelog, changelogItem{
 			Audiences: audienceLabelOrWhole(c.Audiences),
 			HTML:      template.HTML(c.HTML), //nolint:gosec // see above
 		})
 	}
 
-	return renderPage(outDir, url, fmt.Sprintf("%s %s", data.DisplayName, data.Version), targetTmpl, data)
+	return data
 }
 
 // -- outdated uses page ---------------------------------------------------

@@ -7,15 +7,22 @@
 package mdlink
 
 // @docsweb
-// @define mdlink v0.1.0
+// @define mdlink v0.2.0
 // @name Markdown links
 // @summary
 // Resolves @anchor:/@link: pseudo-URLs in Markdown to real HTML before
-// handing the text to a goldmark renderer.
+// handing the text to a goldmark renderer, strictly or leniently.
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// New lenient variants, `PreprocessLenient`/`RenderDocLenient`, for
+// rendering markdown captured at a past commit (see
+// [history](@link:history@v0.1.0)): an invalid anchor name, an unparseable
+// `@link`, or a `@link`/anchor the resolver can't find degrades to the
+// link's plain label text instead of erroring, since a broken reference in
+// old content can never be fixed after the fact the way one in current
+// content can. `Preprocess`/`RenderDoc` are unchanged - still a hard error,
+// exactly as before. Non-breaking.
 // @doc
 // # Markdown links
 //
@@ -47,6 +54,12 @@ package mdlink
 // resolver reports as missing, is a hard error: per the project's
 // pipeline rules, every `@link` must land at an existing target (and
 // anchor, if one is given) before a build is allowed to succeed.
+//
+// `PreprocessLenient`/`RenderDocLenient` are the same resolution, but never
+// error: a broken reference degrades to its plain label text instead. This
+// is for rendering markdown that was never validated the way current
+// content is - e.g. a historic target snapshot - where a broken `@link`
+// can't be fixed after the fact and so can't be allowed to fail a build.
 //
 // `CollectAnchors` runs the same line-by-line scan just to gather
 // `@anchor:name` declarations, so a caller can build the full set of
@@ -160,6 +173,22 @@ func CollectAnchors(markdown string) ([]string, error) {
 // anchor that resolver reports as nonexistent is a hard error (see
 // README.md: "check that all @link and @uses land at an existing target").
 func Preprocess(markdown, defaultScope string, resolver Resolver) (string, error) {
+	return preprocess(markdown, defaultScope, resolver, true)
+}
+
+// PreprocessLenient is like Preprocess, but never errors: an invalid anchor
+// name, an unparseable @link reference, or an @link/anchor resolver reports
+// as nonexistent degrades to the link's plain label text (no anchor tag, no
+// hyperlink) instead of failing. This matters for markdown captured at a
+// past commit - internal/history's historic target snapshots - where a
+// broken reference can never be fixed after the fact, so rendering it can't
+// be allowed to fail an entire build the way it would for current content.
+func PreprocessLenient(markdown, defaultScope string, resolver Resolver) string {
+	out, _ := preprocess(markdown, defaultScope, resolver, false)
+	return out
+}
+
+func preprocess(markdown, defaultScope string, resolver Resolver, strict bool) (string, error) {
 	return forEachNonFencedLine(markdown, func(line string) (string, error) {
 		var lineErr error
 		out := linkRe.ReplaceAllStringFunc(line, func(match string) string {
@@ -169,12 +198,19 @@ func Preprocess(markdown, defaultScope string, resolver Resolver) (string, error
 			sub := linkRe.FindStringSubmatch(match)
 			label, dest := sub[1], sub[2]
 
+			fail := func(err error) string {
+				if strict {
+					lineErr = err
+					return match
+				}
+				return label
+			}
+
 			switch {
 			case strings.HasPrefix(dest, "@anchor:"):
 				name := strings.TrimPrefix(dest, "@anchor:")
 				if !model.ValidName(name) {
-					lineErr = fmt.Errorf("invalid anchor name %q", name)
-					return match
+					return fail(fmt.Errorf("invalid anchor name %q", name))
 				}
 				return fmt.Sprintf(`<a id="%s"></a>%s`, name, label)
 
@@ -183,18 +219,15 @@ func Preprocess(markdown, defaultScope string, resolver Resolver) (string, error
 				refPart, anchor, _ := strings.Cut(refStr, "#")
 				ref, err := model.ParseTargetRef(refPart, defaultScope)
 				if err != nil {
-					lineErr = fmt.Errorf("invalid @link %q: %w", refStr, err)
-					return match
+					return fail(fmt.Errorf("invalid @link %q: %w", refStr, err))
 				}
 				url, ok := resolver.ResolveTarget(ref)
 				if !ok {
-					lineErr = fmt.Errorf("@link %q does not resolve to an existing target", refStr)
-					return match
+					return fail(fmt.Errorf("@link %q does not resolve to an existing target", refStr))
 				}
 				if anchor != "" {
 					if !resolver.HasAnchor(ref, anchor) {
-						lineErr = fmt.Errorf("@link %q: target has no anchor %q", refStr, anchor)
-						return match
+						return fail(fmt.Errorf("@link %q: target has no anchor %q", refStr, anchor))
 					}
 					url += "#" + anchor
 				}
@@ -237,4 +270,11 @@ func RenderDoc(markdown, defaultScope string, resolver Resolver) (string, error)
 		return "", err
 	}
 	return Render(pre)
+}
+
+// RenderDocLenient is RenderDoc's PreprocessLenient counterpart: it never
+// fails over an unresolved @link/anchor (see PreprocessLenient), only over a
+// genuine rendering error from Render itself.
+func RenderDocLenient(markdown, defaultScope string, resolver Resolver) (string, error) {
+	return Render(PreprocessLenient(markdown, defaultScope, resolver))
 }

@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.4.0
+// @define check v0.5.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -19,27 +19,15 @@ package check
 // @uses collect@v0.5.0
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
-// @uses mdlink@v0.1.0
+// @uses mdlink@v0.2.0
+// @uses vcs@v0.5.0
 // @uses model@v0.3.0
-// @uses vcs@v0.4.0
 // @audience dev
 // @changelog
-// **A remote (`git:`) scope's file tree is read directly out of git's
-// object store, with no worktree ever checked out to disk.** The
-// **scopes** check now opens a declared `git:` scope via
-// [vcs.OpenScope](@link:vcs@v0.4.0), which mirrors it *bare* into a
-// `docsweb-cache` directory next to the root `.docsweb.yaml` (or fetches an
-// existing mirror), resolves its configured `ref` to a commit, and hands
-// back an `fs.FS` over that commit's tree - walked exactly like a local
-// scope's own `os.DirFS` from there on. `Result.ScopeRoots` no longer
-// carries an entry for a remote scope (it never had an on-disk root to
-// report in the first place); the new `Result.RemoteScopes` carries its
-// resolved `RemoteScope` (pinned `vcs.Repository` plus its own path within
-// that repository's tree) instead, for
-// [build](@link:build@v0.9.0)'s git-blame attribution to use in place of
-// `vcs.Open`. Breaking for `Result`/`RemoteScope` consumers that relied on
-// `ScopeRoots` covering every scope; every other check's behavior is
-// unchanged.
+// No behavior change - `@uses` references bumped to
+// [mdlink](@link:mdlink@v0.2.0)'s and [vcs](@link:vcs@v0.5.0)'s current
+// versions (new lenient rendering and history-walking primitives,
+// respectively - neither touches anything `check` itself calls).
 // @doc
 // # Check
 //

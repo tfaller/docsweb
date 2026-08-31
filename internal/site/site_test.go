@@ -65,6 +65,10 @@ func buildResult() *build.Result {
 			Target:      app,
 			SummaryHTML: "<p>App summary HTML</p>",
 			DocHTML:     "<p>App documentation body.</p>",
+			Uses: []build.UseLink{
+				{Label: "libs.util.helper@v1.0.0", URL: "libs/util/helper.html", Found: true},
+				{Label: "lib2@v1.0.0", URL: "lib2.html", Found: true},
+			},
 		},
 		{
 			Target:  helper,
@@ -113,6 +117,62 @@ func buildResult() *build.Result {
 	}
 
 	return &build.Result{Targets: targets, Issues: issues}
+}
+
+func TestGenerate_HistoricVersionPages(t *testing.T) {
+	target := &model.Target{
+		Scope:       "",
+		Name:        "app",
+		Version:     v("v2.0.0"),
+		DisplayName: "Application",
+	}
+	oldTarget := &model.Target{
+		Scope:       "",
+		Name:        "app",
+		Version:     v("v1.0.0"),
+		DisplayName: "Application",
+	}
+
+	result := &build.Result{
+		Targets: []build.RenderedTarget{
+			{
+				Target:  target,
+				DocHTML: "<p>Current documentation.</p>",
+				Versions: []build.VersionLink{
+					{Version: v("v2.0.0"), URL: "app.html", Current: true},
+					{Version: v("v1.0.0"), URL: "app/v1.0.0.html"},
+				},
+				History: []build.HistoricVersion{
+					{
+						Target:  oldTarget,
+						DocHTML: "<p>Old documentation.</p>",
+						Author:  "Alice <alice@example.com>",
+					},
+				},
+			},
+		},
+	}
+
+	outDir := t.TempDir()
+	require.NoError(t, site.Generate(result, outDir))
+
+	current := readFile(t, filepath.Join(outDir, "app.html"))
+	assert.Contains(t, current, "Current documentation.")
+	assert.NotContains(t, current, "viewing an old version")
+	// Current page's version list: itself as plain text, the old version as
+	// a link down into its own subdirectory.
+	assert.Contains(t, current, "<strong>v2.0.0 (current)</strong>")
+	assert.Contains(t, current, `<a href="app/v1.0.0.html">v1.0.0</a>`)
+
+	old := readFile(t, filepath.Join(outDir, "app", "v1.0.0.html"))
+	assert.Contains(t, old, "Old documentation.")
+	assert.Contains(t, old, "viewing an old version")
+	assert.Contains(t, old, "Last bumped by Alice &lt;alice@example.com&gt;")
+	assert.Contains(t, old, "Not tracked for past versions.")
+	// Old page's version list: the current version links back up, itself
+	// shown as plain text.
+	assert.Contains(t, old, `<a href="../app.html">v2.0.0 (current)</a>`)
+	assert.Contains(t, old, "<strong>v1.0.0</strong>")
 }
 
 func readFile(t *testing.T, path string) string {

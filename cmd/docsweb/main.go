@@ -6,22 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.4.2
+// @define docsweb v0.5.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.9.0
-// @uses check@v0.4.0
-// @uses site@v0.3.1
+// @uses build@v0.10.0
+// @uses check@v0.5.0
+// @uses site@v0.4.0
 // @audience dev, user
 // @changelog
-// No behavior change - `@uses` references bumped to
-// [build](@link:build@v0.9.0)/[check](@link:check@v0.4.0)'s current
-// versions following their move to reading a remote (`git:`) scope's file
-// tree directly out of git's object store, with no worktree checkout,
-// neither of which changes either CLI command's own flags or behavior.
+// No behavior change to this CLI itself - `@uses` references bumped to
+// [build](@link:build@v0.10.0)/[check](@link:check@v0.5.0)/
+// [site](@link:site@v0.4.0)'s current versions following their move to
+// discovering and rendering past target versions from git history (see
+// [history](@link:history@v0.1.0)).
 // @doc
 // # docsweb
 //

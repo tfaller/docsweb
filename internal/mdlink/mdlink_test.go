@@ -106,6 +106,31 @@ func TestPreprocessLinkInvalidRef(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestPreprocessLenientDegradesUnresolvableLinkToPlainLabel(t *testing.T) {
+	out := PreprocessLenient("See [Text](@link:missing.target@v1.0.0)", "scope", newStubResolver())
+	assert.Equal(t, "See Text", out)
+}
+
+func TestPreprocessLenientDegradesUnresolvableAnchorToPlainLabel(t *testing.T) {
+	out := PreprocessLenient("See [Text](@link:scope.target@v1.0.0#nope)", "scope", newStubResolver())
+	assert.Equal(t, "See Text", out)
+}
+
+func TestPreprocessLenientDegradesInvalidRefToPlainLabel(t *testing.T) {
+	out := PreprocessLenient("See [Text](@link:not a ref)", "scope", newStubResolver())
+	assert.Equal(t, "See Text", out)
+}
+
+func TestPreprocessLenientDegradesInvalidAnchorNameToPlainLabel(t *testing.T) {
+	out := PreprocessLenient("[Text](@anchor:not-valid)", "scope", newStubResolver())
+	assert.Equal(t, "Text", out)
+}
+
+func TestPreprocessLenientStillResolvesValidReferences(t *testing.T) {
+	out := PreprocessLenient("See [Text](@link:scope.target@v1.0.0#section)", "scope", newStubResolver())
+	assert.Equal(t, "See [Text](/scope/target#section)", out)
+}
+
 func TestPreprocessPlainLinksUntouched(t *testing.T) {
 	md := "Check out [the site](https://example.com) and [an image](./pic.png)."
 	out, err := Preprocess(md, "scope", newStubResolver())
@@ -144,5 +169,13 @@ func TestRenderDoc(t *testing.T) {
 	html, err := RenderDoc(md, "scope", newStubResolver())
 	require.NoError(t, err)
 	assert.Contains(t, html, `<a href="/scope/target#section">Text</a>`)
+	assert.Contains(t, html, `<a id="here"></a>anchor`)
+}
+
+func TestRenderDocLenientDegradesBrokenLinkInsteadOfFailing(t *testing.T) {
+	md := "See [Text](@link:missing.target@v1.0.0) and [anchor](@anchor:here)."
+	html, err := RenderDocLenient(md, "scope", newStubResolver())
+	require.NoError(t, err)
+	assert.Contains(t, html, "See Text and")
 	assert.Contains(t, html, `<a id="here"></a>anchor`)
 }

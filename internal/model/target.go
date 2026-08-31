@@ -59,6 +59,18 @@ type Target struct {
 	DefineLine int
 }
 
+// Pieces returns every Markdown piece a target carries - its @summary,
+// @doc, and every @changelog entry's body - in the order anchor uniqueness
+// and @link resolution are checked across them.
+func (t *Target) Pieces() []string {
+	pieces := make([]string, 0, 2+len(t.Changelog))
+	pieces = append(pieces, t.Summary, t.Doc)
+	for _, c := range t.Changelog {
+		pieces = append(pieces, c.Body)
+	}
+	return pieces
+}
+
 // Key returns the scope+name identity of the target (ignoring version).
 func (t *Target) Key() string {
 	if t.Scope == "" {

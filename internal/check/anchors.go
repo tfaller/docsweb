@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/tfaller/docsweb/internal/mdlink"
-	"github.com/tfaller/docsweb/internal/model"
 )
 
 // checkAnchors collects every target's declared anchors up front, across
@@ -15,7 +14,7 @@ func checkAnchors(ctx *context) error {
 	out := make(map[string]map[string]bool)
 	for _, t := range ctx.registry.Targets() {
 		set := map[string]bool{}
-		for _, p := range targetPieces(t) {
+		for _, p := range t.Pieces() {
 			names, err := mdlink.CollectAnchors(p)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.Key(), err)
@@ -31,16 +30,4 @@ func checkAnchors(ctx *context) error {
 	}
 	ctx.anchors = out
 	return nil
-}
-
-// targetPieces returns every piece of Markdown a target carries - its
-// @summary, @doc, and every @changelog entry's body - in the order anchor
-// uniqueness and link resolution are checked across them.
-func targetPieces(t *model.Target) []string {
-	pieces := make([]string, 0, 2+len(t.Changelog))
-	pieces = append(pieces, t.Summary, t.Doc)
-	for _, c := range t.Changelog {
-		pieces = append(pieces, c.Body)
-	}
-	return pieces
 }
