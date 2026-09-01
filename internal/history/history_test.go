@@ -58,23 +58,26 @@ func (r *testRepo) commit(msg string) {
 
 // open opens the repository and parses the root config at configRel
 // (relative to r.dir) as it stands in the working tree right now - the
-// "live" seed Walk expects.
+// "live" seed Walk expects. The returned string is configRel itself
+// (slash-separated), since r.dir is also the repository root in every test
+// here - Walk now takes a repository-tree-relative config path, not an
+// OS-absolute one.
 func (r *testRepo) open(configRel string) (*vcs.Repository, string, *config.Config) {
 	r.t.Helper()
 	repo, err := vcs.Open(r.dir)
 	require.NoError(r.t, err)
-	configPath, cfg := r.liveConfig(configRel)
-	return repo, configPath, cfg
+	configRelSlash, cfg := r.liveConfig(configRel)
+	return repo, configRelSlash, cfg
 }
 
 // liveConfig parses the root config at configRel as it stands in the
-// working tree right now, without opening the repository.
+// working tree right now, without opening the repository. See open's doc
+// for what the returned string means.
 func (r *testRepo) liveConfig(configRel string) (string, *config.Config) {
 	r.t.Helper()
-	configPath := filepath.Join(r.dir, configRel)
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(filepath.Join(r.dir, configRel))
 	require.NoError(r.t, err)
-	return configPath, cfg
+	return filepath.ToSlash(configRel), cfg
 }
 
 func TestWalkDiscoversEveryVersionAcrossHistory(t *testing.T) {

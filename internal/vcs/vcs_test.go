@@ -68,7 +68,7 @@ func TestOpenSubdirectoryFindsRepoRoot(t *testing.T) {
 func TestBlameAuthorMatchesByLineNumber(t *testing.T) {
 	dir := t.TempDir()
 	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
-	path := initRepo(t, dir, []string{
+	initRepo(t, dir, []string{
 		"package doc",
 		"",
 		"// @define foo v1.0.0",
@@ -77,7 +77,7 @@ func TestBlameAuthorMatchesByLineNumber(t *testing.T) {
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	author, ok, err := repo.BlameAuthor(path, 3, "// @define foo v1.0.0")
+	author, ok, err := repo.BlameAuthor("doc.go", 3, "// @define foo v1.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, Author{Name: "Alice", Email: "alice@example.com"}, author)
@@ -90,7 +90,7 @@ func TestBlameAuthorMatchesSubstringNotFullLine(t *testing.T) {
 	// markers, indentation, trailing content) - just a substring built from
 	// structured data it already has in memory (e.g. a target's name and
 	// version) is enough.
-	path := initRepo(t, dir, []string{
+	initRepo(t, dir, []string{
 		"package doc",
 		"",
 		"    // @define foo v1.0.0 (current)",
@@ -99,7 +99,7 @@ func TestBlameAuthorMatchesSubstringNotFullLine(t *testing.T) {
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	author, ok, err := repo.BlameAuthor(path, 3, "@define foo v1.0.0")
+	author, ok, err := repo.BlameAuthor("doc.go", 3, "@define foo v1.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, Author{Name: "Alice", Email: "alice@example.com"}, author)
@@ -129,7 +129,7 @@ func TestBlameAuthorFallsBackToContentWhenLineNumberDrifted(t *testing.T) {
 		"// @define foo v1.0.0",
 	})
 
-	author, ok, err := repo.BlameAuthor(path, 4, "// @define foo v1.0.0")
+	author, ok, err := repo.BlameAuthor("doc.go", 4, "// @define foo v1.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, Author{Name: "Alice", Email: "alice@example.com"}, author)
@@ -161,7 +161,7 @@ func TestBlameAuthorReflectsLastCommitToTouchTheLine(t *testing.T) {
 	vr, err := Open(dir)
 	require.NoError(t, err)
 
-	author, ok, err := vr.BlameAuthor(path, 2, "// @define foo v2.0.0")
+	author, ok, err := vr.BlameAuthor("doc.go", 2, "// @define foo v2.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, Author{Name: "Bob", Email: "bob@example.com"}, author)
@@ -178,7 +178,7 @@ func TestBlameAuthorUntrackedFileReturnsNotOK(t *testing.T) {
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	author, ok, err := repo.BlameAuthor(untracked, 2, "// @define bar v1.0.0")
+	author, ok, err := repo.BlameAuthor("untracked.go", 2, "// @define bar v1.0.0")
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Equal(t, Author{}, author)
@@ -187,12 +187,12 @@ func TestBlameAuthorUntrackedFileReturnsNotOK(t *testing.T) {
 func TestBlameAuthorNoMatchingLineReturnsNotOK(t *testing.T) {
 	dir := t.TempDir()
 	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
-	path := initRepo(t, dir, []string{"package doc", "// @define foo v1.0.0"}, alice)
+	initRepo(t, dir, []string{"package doc", "// @define foo v1.0.0"}, alice)
 
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	author, ok, err := repo.BlameAuthor(path, 2, "// this text was never committed")
+	author, ok, err := repo.BlameAuthor("doc.go", 2, "// this text was never committed")
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Equal(t, Author{}, author)
@@ -282,12 +282,12 @@ func TestMergeBaseInvalidRevisionIsError(t *testing.T) {
 func TestFileContentsAtCommit(t *testing.T) {
 	dir := t.TempDir()
 	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: fixedTime()}
-	path := initRepo(t, dir, []string{"package doc", "// v1"}, alice)
+	initRepo(t, dir, []string{"package doc", "// v1"}, alice)
 
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	content, ok, err := repo.FileContents(repo.commit, path)
+	content, ok, err := repo.FileContents(repo.commit, "doc.go")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "package doc\n// v1", content)
@@ -301,7 +301,7 @@ func TestFileContentsMissingFileIsNotOK(t *testing.T) {
 	repo, err := Open(dir)
 	require.NoError(t, err)
 
-	content, ok, err := repo.FileContents(repo.commit, filepath.Join(dir, "never-committed.go"))
+	content, ok, err := repo.FileContents(repo.commit, "never-committed.go")
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Empty(t, content)

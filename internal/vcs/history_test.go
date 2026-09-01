@@ -186,12 +186,12 @@ func TestBlameAuthorAtBlamesAnArbitraryCommitNotJustThePinnedOne(t *testing.T) {
 	// Blaming against HEAD finds Bob's bump; blaming the same path against
 	// the old commit directly must still find Alice's original line, even
 	// though Repository stays pinned to HEAD.
-	head, ok, err := repo.BlameAuthorAt(repo.PinnedCommit(), wtPath(dir), 2, "@define foo v2.0.0")
+	head, ok, err := repo.BlameAuthorAt(repo.PinnedCommit(), "doc.go", 2, "@define foo v2.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "Bob", head.Name)
 
-	old, ok, err := repo.BlameAuthorAt(oldCommit, wtPath(dir), 2, "@define foo v1.0.0")
+	old, ok, err := repo.BlameAuthorAt(oldCommit, "doc.go", 2, "@define foo v1.0.0")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "Alice", old.Name)

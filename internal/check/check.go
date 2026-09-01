@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.6.0
+// @define check v0.7.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -20,14 +20,14 @@ package check
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.2.0
-// @uses vcs@v0.5.0
+// @uses vcs@v0.6.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// **versionbump** now ignores incidental whitespace (indentation, line
-// wrapping) when comparing documentation and `@changelog` text against the
-// comparison base, so a formatter rewrapping a comment no longer demands a
-// version bump. It also rejects a `@changelog` whose new text is just the
+// No behavior change to `check` itself - `@uses` reference bumped to
+// [vcs](@link:vcs@v0.6.0)'s current version following its
+// `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now always taking
+// a repository-tree-relative path (the OS-absolute-path branch is gone).
 // previous entry with something appended or prepended to it, rather than a
 // genuine replacement - a common mistake in AI-generated documentation.
 // @doc

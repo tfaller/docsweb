@@ -5,7 +5,7 @@
 package history
 
 // @docsweb
-// @define history v0.1.0
+// @define history v0.2.0
 // @name History
 // @summary
 // Walks a repository's first-parent commit log backward from its pinned
@@ -15,10 +15,13 @@ package history
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.5.0
+// @uses vcs@v0.6.0
 // @audience dev
 // @changelog
-// Initial documentation.
+// No behavior change to `history` itself - `@uses` reference bumped to
+// [vcs](@link:vcs@v0.6.0)'s current version following its
+// `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now always taking
+// a repository-tree-relative path (the OS-absolute-path branch is gone).
 // @doc
 // # History
 //
@@ -75,7 +78,6 @@ package history
 import (
 	"fmt"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -110,13 +112,13 @@ type Version struct {
 
 // Walk walks repo's first-parent commit history backward from its pinned
 // commit, discovering every past version of every target defined in the
-// root scope (whose config is at rootConfigPath, already parsed as rootCfg -
-// its current, live content) or a local referenced scope it declares. See
-// the package doc for exactly what makes a commit worth acting on, and what
-// is deliberately out of scope (remote scopes, nested scope discovery).
-func Walk(repo *vcs.Repository, rootConfigPath string, rootCfg *config.Config) (map[string][]Version, error) {
-	repoRoot := repo.Root()
-	if repoRoot == "" {
+// root scope (whose config is at rootConfigRel, a repository-tree-relative,
+// slash-separated path, already parsed as rootCfg - its current, live
+// content) or a local referenced scope it declares. See the package doc for
+// exactly what makes a commit worth acting on, and what is deliberately out
+// of scope (remote scopes, nested scope discovery).
+func Walk(repo *vcs.Repository, rootConfigRel string, rootCfg *config.Config) (map[string][]Version, error) {
+	if repo.Root() == "" {
 		return nil, nil
 	}
 	start := repo.PinnedCommit()
@@ -124,13 +126,9 @@ func Walk(repo *vcs.Repository, rootConfigPath string, rootCfg *config.Config) (
 		return nil, nil
 	}
 
-	rootConfigRel, err := relSlash(repoRoot, rootConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	rootScopeRel, err := relSlash(repoRoot, filepath.Dir(rootConfigPath))
-	if err != nil {
-		return nil, err
+	rootScopeRel := path.Dir(rootConfigRel)
+	if rootScopeRel == "." {
+		rootScopeRel = ""
 	}
 
 	cfg := rootCfg
@@ -171,8 +169,7 @@ func Walk(repo *vcs.Repository, rootConfigPath string, rootCfg *config.Config) (
 				continue
 			}
 
-			absPath := filepath.Join(repoRoot, filepath.FromSlash(p))
-			content, ok, err := repo.FileContents(step.Commit, absPath)
+			content, ok, err := repo.FileContents(step.Commit, p)
 			if err != nil {
 				return false, fmt.Errorf("history: reading %s at %s: %w", p, step.Commit.Hash, err)
 			}
@@ -208,7 +205,7 @@ func Walk(repo *vcs.Repository, rootConfigPath string, rootCfg *config.Config) (
 		if step.Parent == nil {
 			return false, nil
 		}
-		content, ok, err := repo.FileContents(step.Parent, rootConfigPath)
+		content, ok, err := repo.FileContents(step.Parent, rootConfigRel)
 		if err != nil {
 			return false, fmt.Errorf("history: reading %s at %s: %w", rootConfigRel, step.Parent.Hash, err)
 		}
@@ -290,20 +287,4 @@ func isIgnored(matcher *ignore.Matcher, rootScopeRel, p string) bool {
 		rel = strings.TrimPrefix(p, rootScopeRel+"/")
 	}
 	return matcher.Match(rel, false)
-}
-
-// relSlash returns target's path relative to base, slash-separated, or ""
-// if target and base are the same directory (filepath.Rel's "." normalized
-// away, since every path-prefix comparison in this file treats "" as "no
-// offset needed" rather than as a literal single-dot path segment). Both
-// must be absolute OS paths.
-func relSlash(base, target string) (string, error) {
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return "", fmt.Errorf("history: %s is not under %s: %w", target, base, err)
-	}
-	if rel == "." {
-		return "", nil
-	}
-	return filepath.ToSlash(rel), nil
 }

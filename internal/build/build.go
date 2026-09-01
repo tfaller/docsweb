@@ -1,23 +1,24 @@
 package build
 
 // @docsweb
-// @define build v0.12.0
+// @define build v0.13.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.6.0
-// @uses history@v0.1.0
+// @uses check@v0.7.0
+// @uses history@v0.2.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
-// @uses vcs@v0.5.0
+// @uses vcs@v0.6.0
 // @audience dev
 // @changelog
-// No behavior change to `build` itself - `@uses` reference bumped to
-// [check](@link:check@v0.6.0)'s current version following its version-bump
-// check now ignoring incidental whitespace and rejecting a `@changelog`
-// that's just the previous entry with text appended or prepended.
+// No behavior change to `build` itself - `@uses` references bumped to
+// [check](@link:check@v0.7.0), [history](@link:history@v0.2.0), and
+// [vcs](@link:vcs@v0.6.0)'s current versions, following `vcs.Repository`'s
+// path-handling unification (`FileContents`/`BlameAuthor`/`BlameAuthorAt`
+// now always take a repository-tree-relative path) rippling through both.
 // @doc
 // # Build
 //
@@ -255,9 +256,11 @@ func Run(opts Options) (*Result, error) {
 	if rootDir, ok := chk.ScopeRoots[chk.Config.Name]; ok {
 		if repo := localRepo(rootDir); repo != nil {
 			rootRepo = repo
-			rootConfigPath := filepath.Join(chk.RootDir, filepath.Base(opts.ConfigPath))
-			if found, err := history.Walk(repo, rootConfigPath, chk.Config); err == nil {
-				addHistoricVersions(versionsByKey, found)
+			if relScope, err := repo.RelPath(rootDir); err == nil {
+				rootConfigRel := path.Join(relScope, filepath.Base(opts.ConfigPath))
+				if found, err := history.Walk(repo, rootConfigRel, chk.Config); err == nil {
+					addHistoricVersions(versionsByKey, found)
+				}
 			}
 		}
 	}
@@ -277,12 +280,18 @@ func Run(opts Options) (*Result, error) {
 		var repo *vcs.Repository
 		var sourcePath string
 		if len(t.SourceFiles) > 0 {
+			var baseDir string
 			if rs, ok := chk.RemoteScopes[t.ConfigScope]; ok {
-				repo = rs.Repo
-				sourcePath = path.Join(rs.Path, t.SourceFiles[0])
+				repo, baseDir = rs.Repo, rs.Path
 			} else if scopeRoot, ok := chk.ScopeRoots[t.ConfigScope]; ok {
-				repo = localRepo(scopeRoot)
-				sourcePath = filepath.Join(scopeRoot, t.SourceFiles[0])
+				repo, baseDir = localRepo(scopeRoot), scopeRoot
+			}
+			if repo != nil {
+				if relScope, err := repo.RelPath(baseDir); err == nil {
+					sourcePath = path.Join(relScope, t.SourceFiles[0])
+				} else {
+					repo = nil
+				}
 			}
 		}
 		if repo != nil {
@@ -429,8 +438,7 @@ func renderHistoricVersion(rootRepo *vcs.Repository, v versionEntry, versionsByK
 	hv := HistoricVersion{Target: v.target, Uses: resolveUses(v.target.Uses, versionsByKey, v.url)}
 	hv.CommitHash, hv.CommitTime = commitMeta(v.commit)
 	if rootRepo != nil && v.commit != nil {
-		absPath := filepath.Join(rootRepo.Root(), filepath.FromSlash(v.path))
-		hv.Author = blameAuthorAt(rootRepo, v.commit, absPath, v.target)
+		hv.Author = blameAuthorAt(rootRepo, v.commit, v.path, v.target)
 	}
 
 	resolver := &versionResolver{versionsByKey: versionsByKey, fromURL: v.url}
@@ -445,8 +453,9 @@ func renderHistoricVersion(rootRepo *vcs.Repository, v versionEntry, versionsByK
 
 // blameAuthorAt looks up who last touched t's @define line - the line
 // naming its version - via git blame against commit. sourcePath locates t's
-// defining file within repo - see vcs.Repository.BlameAuthorAt's doc for
-// what it means for a local vs. a remote scope's repo. The line is found by
+// defining file within repo - always repository-tree-relative and
+// slash-separated (see vcs.Repository.BlameAuthorAt), the same shape for a
+// local or a remote scope's repo alike. The line is found by
 // its content ("@define <name> <version>", exactly what @define's grammar
 // requires), built from t.Name/t.Version already in memory, rather than by
 // re-reading the defining file just to reproduce its exact text. Returns ""

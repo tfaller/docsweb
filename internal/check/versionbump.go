@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"path"
 	"reflect"
 	"strings"
 
@@ -54,9 +54,13 @@ func checkVersionBump(ctx *context) error {
 		if !ok || len(t.SourceFiles) == 0 {
 			continue
 		}
-		absPath := filepath.Join(scopeRoot, t.SourceFiles[0])
+		relScope, err := repo.RelPath(scopeRoot)
+		if err != nil {
+			return err
+		}
+		sourcePath := path.Join(relScope, t.SourceFiles[0])
 
-		old, found, err := oldTarget(repo, base, absPath, t)
+		old, found, err := oldTarget(repo, base, sourcePath, t)
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.Key(), err)
 		}
@@ -136,16 +140,17 @@ func ciBaseRevision() (rev string, mergeBase bool, ok bool) {
 	return "", false, false
 }
 
-// oldTarget re-parses absPath as it was committed in base and looks up t's
-// own target within it. found is false (with no error) if the file didn't
-// exist in base at all, or existed but didn't yet define this target - both
-// mean there's no prior revision to diff against (a brand-new file or
+// oldTarget re-parses sourcePath (repository-tree-relative, slash-separated
+// - see vcs.Repository.FileContents) as it was committed in base and looks
+// up t's own target within it. found is false (with no error) if the file
+// didn't exist in base at all, or existed but didn't yet define this target
+// - both mean there's no prior revision to diff against (a brand-new file or
 // target), not a documentation change to flag. A malformed old revision
 // (e.g. one written before some annotation grammar rule existed) is treated
 // the same way rather than as a hard failure - this check is best-effort
 // VCS metadata, not a correctness requirement of the current working tree.
-func oldTarget(repo *vcs.Repository, base *vcs.Commit, absPath string, t *model.Target) (*model.Target, bool, error) {
-	content, ok, err := repo.FileContents(base, absPath)
+func oldTarget(repo *vcs.Repository, base *vcs.Commit, sourcePath string, t *model.Target) (*model.Target, bool, error) {
+	content, ok, err := repo.FileContents(base, sourcePath)
 	if err != nil {
 		return nil, false, err
 	}

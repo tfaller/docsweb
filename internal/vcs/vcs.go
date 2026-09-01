@@ -5,7 +5,7 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.5.0
+// @define vcs v0.6.0
 // @name VCS
 // @summary
 // Git lookups: blame (who last touched a given source line, at any commit -
@@ -18,26 +18,21 @@ package vcs
 // older revision.
 // @audience dev
 // @changelog
-// New history-walking primitives, added for
-// [history](@link:history@v0.1.0)'s use: `WalkFirstParent(start, fn)` calls
-// fn once per commit reached by following first parents backward from
-// start, `DiffStep(step)` computes the file-level changes between one such
-// step's two commits (`Parent` is nil for the repository's root commit,
-// treated as "every file added"), and `Diff.Files`/`Diff.AddedLineContains`
-// answer exactly the two questions a caller needs to decide whether a
-// commit is worth acting on - which files changed, and whether a path
-// gained a line containing some substring (matching `BlameAuthor`'s own
-// substring-not-exact-line philosophy). `Repository.BlameAuthor` is now
-// `Repository.BlameAuthorAt(commit, ...)` under the hood (a thin
-// `BlameAuthor` wrapper pinning `commit` to `Repository`'s own one remains,
-// non-breaking), so a caller can blame the same path against many different
-// commits in one `Repository`'s lifetime, not only the one it's pinned to -
-// needed to attribute a historic target version to whoever introduced it.
-// `Repository.Root`/`Repository.PinnedCommit` expose what were previously
-// private fields, for the same reason: a caller walking history needs the
-// working-tree root to translate a commit diff's repository-relative paths
-// back into the absolute OS paths every other lookup here expects, and a
-// starting point for the walk itself.
+// **Breaking:** `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now
+// always take a repository-tree-relative, slash-separated path - the
+// OS-absolute-path branch (for a `Repository` opened via `Open`) is gone.
+// It only ever existed as bookkeeping on this package's side: once a
+// `*git.Repository`/`*object.Commit` handle exists, every go-git call here
+// (`c.File`, `git.Blame`, `ResolveRevision`, `MergeBase`) already worked
+// purely on repo-relative strings, never an OS path. The new exported
+// `Repository.RelPath(absPath)` is the old internal conversion, kept for a
+// caller that still only has an OS-absolute scope directory (e.g. a local
+// scope's root) and needs its one-time repository-relative offset - meant
+// to be called once per scope, not once per file, unlike the old implicit
+// per-call conversion. For a `Repository` with no on-disk root (one opened
+// via `OpenScope`), `RelPath` returns its input unchanged, so a caller can
+// pass a local scope's OS-absolute root or a remote scope's already-relative
+// one (`RemoteScope.Path`) through the same call uniformly.
 //
 // **`CloneOrFetch` is replaced by `OpenScope(cacheDir, repoURL, ref)`,
 // which never checks a worktree out to disk.** It still ensures a local,
@@ -98,10 +93,10 @@ package vcs
 // whenever unrelated edits shifted line numbers. Returns `ok == false` (no
 // error) when the file isn't tracked at that commit, or no line matches at
 // all - again, best-effort rather than a hard failure. The path it's given
-// is either an absolute OS path (for a `Repository` opened via `Open`,
-// resolved relative to the discovered working-tree root) or already a
-// repository-tree-relative path (for one opened via `OpenScope`, which has
-// no working tree to resolve against).
+// is always a repository-tree-relative, slash-separated path, for a
+// `Repository` opened either way - see `Repository.RelPath` for a caller
+// that only has an OS-absolute path (e.g. a local scope's own root
+// directory) and needs to find that offset once.
 //
 // `Repository.Commit` resolves any revision string to a `Commit`.
 // `Repository.MergeBase` resolves two revisions and returns their common
@@ -265,27 +260,23 @@ func (r *Repository) MergeBase(revA, revB string) (*Commit, error) {
 	return bases[0], nil
 }
 
-// FileContents returns the contents of the file at path (see relPath's doc
-// for what path means for a Repository opened via Open vs OpenScope) as
-// committed in c. ok is false, without an error, if that file did not exist
-// in c yet (e.g. it was added afterwards) - a caller diffing documentation
-// against a base revision should treat a brand-new file as "nothing to
-// compare against", not a hard failure.
+// FileContents returns the contents of the file at path - always the
+// slash-separated, repository-tree-relative form (see RelPath if a caller
+// only has an OS-absolute path) - as committed in c. ok is false, without an
+// error, if that file did not exist in c yet (e.g. it was added afterwards)
+// - a caller diffing documentation against a base revision should treat a
+// brand-new file as "nothing to compare against", not a hard failure.
 func (r *Repository) FileContents(c *Commit, path string) (content string, ok bool, err error) {
-	rel, err := r.relPath(path)
-	if err != nil {
-		return "", false, err
-	}
-	f, err := c.File(rel)
+	f, err := c.File(path)
 	if err != nil {
 		if err == object.ErrFileNotFound {
 			return "", false, nil
 		}
-		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", rel, c.Hash, err)
+		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", path, c.Hash, err)
 	}
 	content, err = f.Contents()
 	if err != nil {
-		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", rel, c.Hash, err)
+		return "", false, fmt.Errorf("vcs: reading %s at %s: %w", path, c.Hash, err)
 	}
 	return content, true, nil
 }
@@ -310,9 +301,10 @@ func findRepoRoot(dir string) (string, bool) {
 	}
 }
 
-// BlameAuthor returns who introduced the line at path (see relPath's doc
-// for what path means for a Repository opened via Open vs OpenScope)
-// containing the substring contains, per git blame against the
+// BlameAuthor returns who introduced the line at path - always the
+// slash-separated, repository-tree-relative form (see RelPath if a caller
+// only has an OS-absolute path) - containing the substring contains, per git
+// blame against the
 // Repository's pinned commit (HEAD, for one opened via Open). line is a
 // 1-based hint into the file's current line numbering, checked first as a
 // fast path; if that line doesn't contain the substring (e.g. unrelated
@@ -335,15 +327,10 @@ func (r *Repository) BlameAuthor(path string, line int, contains string) (author
 // introduced it, the same way BlameAuthor attributes the current version
 // against HEAD.
 func (r *Repository) BlameAuthorAt(commit *Commit, path string, line int, contains string) (author Author, ok bool, err error) {
-	rel, err := r.relPath(path)
-	if err != nil {
-		return Author{}, false, err
-	}
-
-	key := blameKey{commit: commit.Hash, path: rel}
+	key := blameKey{commit: commit.Hash, path: path}
 	result, cached := r.blame[key]
 	if !cached {
-		result, err = git.Blame(commit, rel)
+		result, err = git.Blame(commit, path)
 		if err != nil {
 			// Not tracked at that commit (new/untracked file, or
 			// moved/renamed) - not an error, just no answer.
@@ -366,21 +353,25 @@ func (r *Repository) BlameAuthorAt(commit *Commit, path string, line int, contai
 	return Author{}, false, nil
 }
 
-// relPath converts path into the slash-separated, repository-tree-relative
-// form every go-git lookup (blame, tree entries) expects. For a Repository
-// discovered via Open (a real on-disk working tree), path is an absolute OS
-// path inside that tree, resolved relative to the discovered root. For a
-// Repository opened directly against a resolved commit via OpenScope (e.g.
-// a remote scope's bare mirror, which has no working tree on disk at all,
-// so r.root is unset), there is no root to resolve against, and path is
-// taken as already being that relative form.
-func (r *Repository) relPath(path string) (string, error) {
+// RelPath converts absPath - an OS-absolute path inside Root() - into the
+// slash-separated, repository-tree-relative form FileContents/BlameAuthor/
+// BlameAuthorAt expect. It's meant to be called once per scope directory (to
+// find that scope's own offset within the repository), not once per file -
+// every per-file path from there on is built by joining that offset with a
+// file's own scope-relative name.
+//
+// For a Repository with no on-disk root (one opened via OpenScope, which has
+// no working tree on disk at all), there is no root to resolve against, so
+// absPath is returned unchanged - this lets a caller pass either an
+// OS-absolute local scope directory or an already-relative remote one
+// (RemoteScope.Path) through the same call, uniformly.
+func (r *Repository) RelPath(absPath string) (string, error) {
 	if r.root == "" {
-		return path, nil
+		return absPath, nil
 	}
-	rel, err := filepath.Rel(r.root, path)
+	rel, err := filepath.Rel(r.root, absPath)
 	if err != nil {
-		return "", fmt.Errorf("vcs: %s is not under repository root %s: %w", path, r.root, err)
+		return "", fmt.Errorf("vcs: %s is not under repository root %s: %w", absPath, r.root, err)
 	}
 	return filepath.ToSlash(rel), nil
 }
