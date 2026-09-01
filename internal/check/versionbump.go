@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/tfaller/docsweb/internal/annotation"
 	"github.com/tfaller/docsweb/internal/collect"
@@ -19,7 +20,15 @@ import (
 // @uses reference pinned at the old version silently stale, and a version
 // bump with no changelog entry leaves readers with no way to tell what
 // changed for the new version (per README.md's "Changelogs are important"
-// paragraph).
+// paragraph). It also rejects a @changelog that was merely appended or
+// prepended to the previous version's text instead of replaced - a common
+// AI-generated-documentation mistake that leaves the entry describing more
+// than just this version's change (see changelogRetainsOldText).
+//
+// Every text comparison here - documentation content and changelog wording
+// alike - ignores incidental whitespace differences (see
+// normalizeWhitespace), so a formatter or editor rewrapping a comment
+// without changing any word never counts as a change.
 //
 // This is best-effort, VCS-only metadata, like internal/vcs's git-blame
 // attribution: it silently does nothing outside of a git repository, and
@@ -59,9 +68,13 @@ func checkVersionBump(ctx *context) error {
 			return fmt.Errorf("%s: documentation changed since %s but the @define version was not bumped (still %s)",
 				t.Key(), base.Hash, t.Version)
 		}
-		if reflect.DeepEqual(old.Changelog, t.Changelog) {
+		if changelogEqual(old.Changelog, t.Changelog) {
 			return fmt.Errorf("%s: documentation changed since %s but @changelog was not updated",
 				t.Key(), base.Hash)
+		}
+		if changelogRetainsOldText(old.Changelog, t.Changelog) {
+			return fmt.Errorf("%s: @changelog still contains the previous version's text (appended or prepended) instead of describing just this version's change",
+				t.Key())
 		}
 	}
 
@@ -163,10 +176,74 @@ func oldTarget(repo *vcs.Repository, base *vcs.Commit, absPath string, t *model.
 // version are deliberately excluded - those are exactly what checkVersionBump
 // requires to change *because* this is true, not inputs to the comparison
 // itself.
+//
+// Text fields are compared with normalizeWhitespace so that a formatter (or
+// an editor) rewrapping a comment - changing indentation or line breaks
+// without touching any actual word - never counts as a documentation
+// change requiring a version bump.
 func docsChanged(old, cur *model.Target) bool {
-	return old.Summary != cur.Summary ||
-		old.Doc != cur.Doc ||
-		old.DisplayName != cur.DisplayName ||
+	return normalizeWhitespace(old.Summary) != normalizeWhitespace(cur.Summary) ||
+		normalizeWhitespace(old.Doc) != normalizeWhitespace(cur.Doc) ||
+		normalizeWhitespace(old.DisplayName) != normalizeWhitespace(cur.DisplayName) ||
 		!reflect.DeepEqual(old.Uses, cur.Uses) ||
 		!reflect.DeepEqual(old.Audiences, cur.Audiences)
+}
+
+// normalizeWhitespace collapses every run of whitespace (including
+// newlines) to a single space and trims the ends, so two texts that differ
+// only in indentation or line wrapping - the kind of change a formatter
+// makes - compare equal.
+func normalizeWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// changelogEqual reports whether old and cur are the same @changelog,
+// ignoring incidental whitespace differences (see normalizeWhitespace) in
+// each entry's body. Entry count and each entry's @audience override are
+// compared exactly - only the body text is whitespace-normalized.
+func changelogEqual(old, cur []model.ChangelogEntry) bool {
+	if len(old) != len(cur) {
+		return false
+	}
+	for i := range old {
+		if !reflect.DeepEqual(old[i].Audiences, cur[i].Audiences) {
+			return false
+		}
+		if normalizeWhitespace(old[i].Body) != normalizeWhitespace(cur[i].Body) {
+			return false
+		}
+	}
+	return true
+}
+
+// changelogText concatenates every changelog entry's body into one
+// whitespace-normalized string (see normalizeWhitespace), for comparing a
+// changelog's overall wording regardless of how it happens to be split
+// across entries.
+func changelogText(entries []model.ChangelogEntry) string {
+	bodies := make([]string, len(entries))
+	for i, e := range entries {
+		bodies[i] = e.Body
+	}
+	return normalizeWhitespace(strings.Join(bodies, "\n"))
+}
+
+// changelogRetainsOldText reports whether cur's changelog text is old's
+// text with something appended or prepended, rather than a genuinely new
+// description of just this version's change - a common AI mistake, and
+// exactly what @changelog's "just reflect the change for the current
+// version" rule (README.md's "Changelog definition") forbids: readers
+// shouldn't have to spot where the old entry ends and the new one begins.
+func changelogRetainsOldText(old, cur []model.ChangelogEntry) bool {
+	oldText := changelogText(old)
+	if oldText == "" {
+		return false
+	}
+	curText := changelogText(cur)
+	if curText == oldText {
+		// Already reported by changelogEqual (same or equivalent-under-
+		// whitespace text) - not an append/prepend case.
+		return false
+	}
+	return strings.HasPrefix(curText, oldText) || strings.HasSuffix(curText, oldText)
 }

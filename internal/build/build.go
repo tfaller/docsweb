@@ -1,32 +1,23 @@
 package build
 
 // @docsweb
-// @define build v0.11.0
+// @define build v0.12.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.5.0
+// @uses check@v0.6.0
 // @uses history@v0.1.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
 // @uses vcs@v0.5.0
 // @audience dev
 // @changelog
-// **Every version now carries its own introducing commit's hash and
-// timestamp.** `RenderedTarget`/`HistoricVersion`/`VersionLink` all gained
-// `CommitHash` (short, 7 hex digits) and `CommitTime` (the committer
-// timestamp), alongside the existing `Author`. The data was already flowing
-// through unused: [history.Walk](@link:history@v0.1.0) rediscovers a
-// target's *current* version too (per its own doc), but `addHistoricVersions`
-// previously discarded that entry's commit with a bare `continue` once it
-// matched the live registry's version - it's now captured onto the current
-// `versionEntry` instead, so `commitMeta` (new, wrapping `vcs.Commit.Hash`/
-// `.Committer.When`) has something to read for the current version, exactly
-// like it already did for a historic one via `renderHistoricVersion`.
-// Best-effort, same as `Author`: empty/zero outside of a git repository, for
-// a remote-scope target, or whenever no introducing commit was discovered.
+// No behavior change to `build` itself - `@uses` reference bumped to
+// [check](@link:check@v0.6.0)'s current version following its version-bump
+// check now ignoring incidental whitespace and rejecting a `@changelog`
+// that's just the previous entry with text appended or prepended.
 // @doc
 // # Build
 //

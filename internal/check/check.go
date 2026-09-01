@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.5.0
+// @define check v0.6.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -24,10 +24,12 @@ package check
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// No behavior change - `@uses` references bumped to
-// [mdlink](@link:mdlink@v0.2.0)'s and [vcs](@link:vcs@v0.5.0)'s current
-// versions (new lenient rendering and history-walking primitives,
-// respectively - neither touches anything `check` itself calls).
+// **versionbump** now ignores incidental whitespace (indentation, line
+// wrapping) when comparing documentation and `@changelog` text against the
+// comparison base, so a formatter rewrapping a comment no longer demands a
+// version bump. It also rejects a `@changelog` whose new text is just the
+// previous entry with something appended or prepended to it, rather than a
+// genuine replacement - a common mistake in AI-generated documentation.
 // @doc
 // # Check
 //
@@ -64,9 +66,11 @@ package check
 //   actually rendering a page.
 // - **versionbump** (`CheckOnly`) - via [vcs](@link:vcs@v0.4.0), diffs every
 //   target's documentation against a comparison base commit (auto-detected
-//   CI merge/pull-request base, an explicit `Options.Base`, or `HEAD`) and
-//   requires that a documented target whose content changed since that
-//   base also bumped its `@define` version and updated its `@changelog`.
+//   CI merge/pull-request base, an explicit `Options.Base`, or `HEAD`),
+//   ignoring incidental whitespace, and requires that a documented target
+//   whose content changed since that base also bumped its `@define`
+//   version and updated its `@changelog` to genuinely new text - not the
+//   previous entry with something appended or prepended to it.
 //
 // Each check's `Phase` says whether it applies to `docsweb
 // check` (`Run`), `docsweb build` (`RunForBuild`), or both - most checks

@@ -68,6 +68,59 @@ const docV2Full = `package widget
 */
 `
 
+// docV1Reformatted has the exact same words as docV1 in every tag (no
+// version bump, no real content change), just rewrapped and reindented -
+// what a formatter or an editor's auto-wrap would do to a comment without
+// touching any actual documentation.
+const docV1Reformatted = `package widget
+
+/*
+	@docsweb
+	@define widget v1.0.0
+	@doc
+	Version
+	    one.
+	@changelog
+	Initial
+	  documentation.
+	@docsweb
+*/
+`
+
+// docV2ChangelogAppended bumps the version and changes the doc like
+// docV2Full, but its @changelog still contains docV1's original entry text
+// verbatim, with the real update appended after it - the "AI appended
+// instead of replaced" mistake.
+const docV2ChangelogAppended = `package widget
+
+/*
+    @docsweb
+    @define widget v1.1.0
+    @doc
+    Version two, with more detail.
+    @changelog
+    Initial documentation.
+    Added more detail.
+    @docsweb
+*/
+`
+
+// docV2ChangelogPrepended is the same mistake as docV2ChangelogAppended, but
+// with the new text placed before the retained old entry instead of after.
+const docV2ChangelogPrepended = `package widget
+
+/*
+    @docsweb
+    @define widget v1.1.0
+    @doc
+    Version two, with more detail.
+    @changelog
+    Added more detail.
+    Initial documentation.
+    @docsweb
+*/
+`
+
 // initVersionBumpRepo creates a fresh git repo at dir with a minimal
 // .docsweb.yaml and a.go (containing content), committed. Returns the repo
 // and the path to a.go.
@@ -125,6 +178,46 @@ func TestCheckVersionBumpPassesWhenVersionAndChangelogBothUpdated(t *testing.T) 
 	_, path := initVersionBumpRepo(t, dir, docV1)
 
 	require.NoError(t, os.WriteFile(path, []byte(docV2Full), 0o644))
+
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	assert.NoError(t, err)
+}
+
+func TestCheckVersionBumpFlagsChangelogAppendedToOldText(t *testing.T) {
+	dir := t.TempDir()
+	_, path := initVersionBumpRepo(t, dir, docV1)
+
+	// Uncommitted: version bumped, doc changed for real, but @changelog is
+	// the old entry with the new text appended - not a replacement.
+	require.NoError(t, os.WriteFile(path, []byte(docV2ChangelogAppended), 0o644))
+
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "still contains the previous version's text")
+}
+
+func TestCheckVersionBumpFlagsChangelogPrependedToOldText(t *testing.T) {
+	dir := t.TempDir()
+	_, path := initVersionBumpRepo(t, dir, docV1)
+
+	// Same mistake as above, just with the new text placed before the
+	// retained old entry instead of after it.
+	require.NoError(t, os.WriteFile(path, []byte(docV2ChangelogPrepended), 0o644))
+
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "still contains the previous version's text")
+}
+
+func TestCheckVersionBumpIgnoresWhitespaceOnlyReformatting(t *testing.T) {
+	dir := t.TempDir()
+	_, path := initVersionBumpRepo(t, dir, docV1)
+
+	// Uncommitted: the @doc and @changelog text was rewrapped/reindented by
+	// a formatter, but every actual word is unchanged - no version bump
+	// should be required, and the (unchanged) changelog shouldn't be
+	// flagged as retaining old text either.
+	require.NoError(t, os.WriteFile(path, []byte(docV1Reformatted), 0o644))
 
 	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
 	assert.NoError(t, err)
