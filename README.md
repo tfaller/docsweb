@@ -1,3 +1,13 @@
+<!--
+    @docsweb
+    @define readme v1.0.0
+    @name README
+    @summary
+    Project overview, the full annotation grammar spec, and the
+    configuration reference - dogfooded as a real docsweb target via the
+    Markdown frontend described in its own "Markdown files" section below.
+-->
+
 # docsweb
 
 Write technical documentation where it belongs. Besides the code.
@@ -40,6 +50,42 @@ Because the documentation body has no fixed position in the block, it needs its 
 
 A block ends at an explicit closing `@docsweb`, or otherwise at the natural end of the surrounding comment: the closing `*/` for a block comment, or the first line that isn't a comment for a run of single-line comments (`//`, `#`, ...). The closing tag is optional and mainly useful when a block comment continues with unrelated text afterwards, or when a block should end deliberately before that natural boundary. For single-line comments, an empty comment line (e.g. a bare `//`) continues the run and represents a Markdown paragraph break; only a genuine blank line (no comment prefix at all) or actual code ends it automatically. This keeps multi-paragraph Markdown safe - a paragraph break inside the documentation never gets mistaken for the end of the block.
 
+## Markdown files
+
+Documentation can also live directly in a Markdown file instead of a source-code
+comment. The file still opens with one `@docsweb` annotation comment - written as an
+HTML comment (`<!-- -->`) so it doesn't show up when the raw Markdown is rendered
+elsewhere - but it must be the very first thing in the file, before anything else, and
+a Markdown file may define at most one target this way.
+
+`@doc` is not used here, and is rejected as an error if present: once the annotation
+comment closes, everything that follows in the file - the actual Markdown body - is
+the target's documentation, verbatim.
+
+```markdown
+<!--
+    @docsweb
+    @define target v1.0.1
+    @name Some cool target (system/module/feature)
+    @summary
+    Brief summary what this target is about. Optional.
+    @uses bla.bla.x@v1.0.0
+    @audience dev, tester, user
+    @changelog
+    Fix types.
+-->
+
+# Some cool target
+
+Document with markdown, right here as the rest of the file.
+```
+
+Every other rule from "Annotation grammar" above still applies to the annotation
+comment itself - indentation is stripped the same way, and a fenced code block inside
+it still suppresses tag recognition. A Markdown file with no leading `@docsweb`
+comment at all is simply not a docsweb target - it's left alone as ordinary Markdown,
+the same way a source file with no `@docsweb` block anywhere in it defines nothing.
+
 ## Audiences
 Not all targets/documentation are important for all readers. `@audience` can be used to define for what readers a target or following text block are relevant. An audience is a group of users. Like devs, testers, admins and actual users as in end users / customers. `all` means all.
 
@@ -57,38 +103,38 @@ Target and scope names are alphanumeric only and case-sensitive - the same appli
 
 `@define` names itself, and can be written in one of three forms:
 
-`
+```
 @define targetName vX.X.X
-`
+```
 
 A bare name is relative shorthand: it's implicitly scoped under the scope the defining file lives in (see "Scopes" below).
 
-`
+```
 @define .subScope.targetName vX.X.X
-`
+```
 
 A leading dot is also relative, but lets a target group itself into a sub-namespace within its own scope without having to retype that scope's name.
 
-`
+```
 @define scope.subScope.targetName vX.X.X
-`
+```
 
 Without a leading dot, a dotted name is taken completely literally as the target's absolute, fully-qualified name - including its own scope. This is validated: it's a hard build error unless it equals, or is a sub-namespace of, the name the containing scope declares for itself (see "Scopes"). This form is never required, but it makes a single `@docsweb` block fully self-describing even read in isolation, with no need to know which scope's `.docsweb.yaml` governs the file it's in.
 
-`
+```
 @uses: scope.targetName@vX.X.X
-`
+```
 
 An unprefixed `@uses` resolves relative to the referencing target's own scope (which may itself be a sub-namespace, per the two relative `@define` forms above).
 
 Anchor for links. The anchor name must be unique in the containing target
-`
+```
 Some [Text](@anchor:name) and more Text
-`
+```
 
-`
+```
 [Text](@link:scope.target@vX.X.X#anchor)
-`
+```
 
 `@anchor:` and `@link:` destinations are resolved by a preprocessing step before the surrounding text is handed to the Markdown renderer, so they can be written as plain Markdown link destinations without needing any special support from the renderer itself.
 

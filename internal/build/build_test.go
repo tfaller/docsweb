@@ -52,6 +52,39 @@ func TestRunFullIntegration(t *testing.T) {
 	assert.Equal(t, model.Version{Major: 1, Minor: 2, Patch: 0}, result.Issues[0].Current)
 }
 
+// TestRunMarkdownTarget proves a Markdown file defined via its own leading
+// @docsweb annotation comment (internal/annotation.ParseMarkdownSource, no
+// @doc tag) renders through the exact same pipeline as a code-comment
+// target: the file's own Markdown body becomes DocHTML, @anchor: resolves,
+// and git-blame attribution works off the same SourceFiles/DefineLine data.
+func TestRunMarkdownTarget(t *testing.T) {
+	rootDir := t.TempDir()
+	repo, err := git.PlainInit(rootDir, false)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, ".docsweb.yaml"), []byte("name: mdintegration\n"), 0o644))
+	mdSrc := "<!--\n    @docsweb\n    @define page v1.0.0\n    @name Markdown Page\n-->\n\n# Markdown Page\n\nSome [linked text](@anchor:top) here.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "page.md"), []byte(mdSrc), 0o644))
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add(".")
+	require.NoError(t, err)
+	alice := object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err = wt.Commit("add markdown page", &git.CommitOptions{Author: &alice})
+	require.NoError(t, err)
+
+	result, err := Run(Options{ConfigPath: filepath.Join(rootDir, ".docsweb.yaml")})
+	require.NoError(t, err)
+	require.Len(t, result.Targets, 1)
+
+	page := result.Targets[0]
+	assert.Equal(t, "Markdown Page", page.Target.DisplayName)
+	assert.Contains(t, page.DocHTML, "Markdown Page</h1>")
+	assert.Contains(t, page.DocHTML, `id="top"`)
+	assert.Equal(t, "Alice <alice@example.com>", page.Author)
+}
+
 func TestRunErrorsOnMissingReferencedScopeConfig(t *testing.T) {
 	_, err := Run(Options{ConfigPath: "testdata/scope_missing_config/.docsweb.yaml"})
 	require.Error(t, err)

@@ -161,6 +161,20 @@ func (r *Registry) AddScope(opts Options) error {
 			return fmt.Errorf("reading %s: %w", p, err)
 		}
 
+		if isMarkdownFile(d.Name()) {
+			doc, err := annotation.ParseMarkdownSource(string(src))
+			if err != nil {
+				return fmt.Errorf("%s: %w", p, err)
+			}
+			if doc == nil {
+				return nil
+			}
+			if err := r.addTargetDoc(opts.Scope, p, *doc); err != nil {
+				return fmt.Errorf("%s: %w", p, err)
+			}
+			return nil
+		}
+
 		docs, err := annotation.ParseSource(string(src))
 		if err != nil {
 			return fmt.Errorf("%s: %w", p, err)
@@ -202,6 +216,17 @@ func isProbablySource(name string) bool {
 		return false
 	}
 	return true
+}
+
+// isMarkdownFile reports whether a file should be parsed via the Markdown
+// frontend (annotation.ParseMarkdownSource) instead of the regular
+// comment-block grammar (annotation.ParseSource).
+func isMarkdownFile(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".md", ".markdown":
+		return true
+	}
+	return false
 }
 
 func (r *Registry) addTargetDoc(configScope, file string, doc annotation.TargetDoc) error {

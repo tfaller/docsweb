@@ -36,9 +36,10 @@ func TestRunBuildEndToEnd(t *testing.T) {
 }
 
 // TestRunBuildOwnRepo is docsweb's dogfooding smoke test: the project's own
-// root .docsweb.yaml (whose "ignore:" rules exclude testdata/, *_test.go,
-// and README.md's own grammar example) must build cleanly against docsweb's
-// own source tree.
+// root .docsweb.yaml (whose "ignore:" rules exclude testdata/ and
+// *_test.go) must build cleanly against docsweb's own source tree,
+// including README.md itself, a real Markdown-frontend target since its own
+// "Markdown files" section was added.
 func TestRunBuildOwnRepo(t *testing.T) {
 	err := run([]string{
 		"build",

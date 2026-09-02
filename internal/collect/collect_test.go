@@ -118,6 +118,29 @@ func TestAddScopeIgnoreSkipsMatchedDirectory(t *testing.T) {
 	assert.Len(t, r.Targets(), 1)
 }
 
+func TestAddScopeCollectsMarkdownTarget(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/markdown")})
+	require.NoError(t, err)
+
+	tgt, ok := r.Get("mddoc")
+	require.True(t, ok)
+	assert.Equal(t, "Markdown Target", tgt.DisplayName)
+	assert.Equal(t, []model.Audience{"dev", "user"}, tgt.Audiences)
+	assert.Equal(t, "# Markdown Target\n\nThis is real documentation content.", tgt.Doc)
+
+	// plain.md has no leading @docsweb comment, so it's silently skipped -
+	// not an error, and no second target.
+	assert.Len(t, r.Targets(), 1)
+}
+
+func TestAddScopeMarkdownDocTagErrors(t *testing.T) {
+	r := NewRegistry()
+	err := r.AddScope(Options{Scope: "", Root: os.DirFS("testdata/markdown_bad")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "@doc is not allowed")
+}
+
 func TestAddScopeIgnoreOffsetIsPrependedBeforeMatching(t *testing.T) {
 	r := NewRegistry()
 	err := r.AddScope(Options{
