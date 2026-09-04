@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -273,4 +274,35 @@ scope:
         ref: branch
 `))
 	assert.ErrorContains(t, err, "must specify path or git")
+}
+
+func TestParseScopePathIsNormalized(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{".", ""},
+		{"./", ""},
+		{"/", ""},
+		{"someDir", "someDir"},
+		{"someDir/", "someDir"},
+		{"./someDir", "someDir"},
+		{"./someDir/", "someDir"},
+		{"/someDir", "someDir"},
+		{"/someDir/", "someDir"},
+		{"some/path", "some/path"},
+		{"../escape", "escape"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			cfg, err := Parse([]byte(fmt.Sprintf(`
+name: root
+scope:
+    s:
+        path: %q
+`, tt.path)))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Scopes["s"].Path)
+		})
+	}
 }

@@ -4,7 +4,7 @@
 package config
 
 // @docsweb
-// @define config v0.3.0
+// @define config v0.3.1
 // @name Config
 // @summary
 // Loads and validates .docsweb.yaml: a scope's own self-declared name,
@@ -13,13 +13,17 @@ package config
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// New `LoadFS(fsys, name)`: the `fs.FS`-based counterpart to `Load`, for a
-// scope whose file tree isn't necessarily an OS directory - used by
-// [check](@link:check@v0.4.0)'s scope collection to read a remote scope's
-// own `.docsweb.yaml` straight out of its resolved commit (see
-// [vcs.OpenScope](@link:vcs@v0.4.0)), now that a remote scope no longer has
-// a worktree checked out to disk at all. Non-breaking; `Load`/`Parse`'s own
-// behavior is unchanged.
+// Fixed: a `scope`'s `path:` is now normalized (via the new unexported
+// `normalizeScopePath`) into the canonical form the rest of docsweb
+// expects - "", ".", "./", "/", "someDir/", "./someDir", "./someDir/",
+// "/someDir" and "/someDir/" now all resolve the same way instead of only
+// one exact spelling working. This matters most for a remote (`git:`)
+// scope's `path:`, which [check](@link:check@v0.4.0) passes straight to
+// `fs.Sub` - `fs.Sub`'s `fs.ValidPath` requirement rejected every form
+// above except a bare relative path with no trailing slash, so a
+// human-written `./someDir/`-style path failed the build with an
+// `fs.Sub` error instead of being accepted. Non-breaking; every path that
+// already worked still resolves to the same place.
 // @doc
 // # Config
 //
@@ -62,6 +66,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/tfaller/docsweb/internal/model"
@@ -99,6 +104,20 @@ type Scope struct {
 
 // Remote reports whether s is a remote (git-based) scope.
 func (s Scope) Remote() bool { return s.Git != "" }
+
+// normalizeScopePath turns a human-written scope path - which may use any
+// of ".", "./", "/", "someDir/", "./someDir/", "/someDir", "./someDir", ...
+// to mean the same thing - into the canonical form the rest of docsweb
+// expects: "" for the path's own root, otherwise a slash-separated relative
+// path with no leading "/" or "./" and no trailing "/". This matters most
+// for a remote scope's Path, which internal/check later passes to fs.Sub -
+// fs.Sub's fs.ValidPath requirement rejects most of those human-written
+// forms outright. Prepending "/" before path.Clean also neutralizes a
+// leading ".." (e.g. "../escape" -> "escape") rather than letting it climb
+// out of the intended root.
+func normalizeScopePath(p string) string {
+	return strings.TrimPrefix(path.Clean("/"+p), "/")
+}
 
 // Config is one parsed and validated .docsweb.yaml.
 type Config struct {
@@ -232,7 +251,7 @@ func Parse(data []byte) (*Config, error) {
 
 		scopes[name] = Scope{
 			Name:        name,
-			Path:        rs.Path,
+			Path:        normalizeScopePath(rs.Path),
 			Git:         rs.Git,
 			Ref:         rs.Ref,
 			AudienceMap: audienceMap,
