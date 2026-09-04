@@ -6,22 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.8.0
+// @define docsweb v0.9.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.13.0
-// @uses check@v0.7.0
-// @uses site@v0.7.0
+// @uses build@v0.14.0
+// @uses check@v0.8.0
+// @uses site@v0.8.0
 // @audience dev, user
 // @changelog
 // No behavior change to this CLI itself - `@uses` references bumped to
-// [build](@link:build@v0.13.0)/[check](@link:check@v0.7.0)/
-// [site](@link:site@v0.7.0)'s current versions following
-// `vcs.Repository`'s path-handling unification rippling through the whole
-// dependency chain.
+// [build](@link:build@v0.14.0)/[check](@link:check@v0.8.0)/
+// [site](@link:site@v0.8.0)'s current versions following a bug fix to how
+// `check`/`history` re-parse a Markdown-defined target's older git
+// revisions (see [collect](@link:collect@v0.6.0)'s changelog).
 // @doc
 // # docsweb
 //

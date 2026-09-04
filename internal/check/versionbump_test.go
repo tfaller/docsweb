@@ -3,6 +3,7 @@ package check
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v6"
@@ -121,16 +122,52 @@ const docV2ChangelogPrepended = `package widget
 */
 `
 
+// mdV1 defines a target via the Markdown frontend (annotation.
+// ParseMarkdownSource): the leading comment carries @define/@changelog, and
+// everything after it - the file's real Markdown body - is the target's Doc.
+const mdV1 = `<!--
+    @docsweb
+    @define widget v1.0.0
+    @changelog
+    Initial documentation.
+    @docsweb
+-->
+
+Version one.
+`
+
+// mdV2Full bumps the version and updates both the body (Doc) and the
+// changelog - the well-behaved case.
+const mdV2Full = `<!--
+    @docsweb
+    @define widget v1.1.0
+    @changelog
+    Added more detail.
+    @docsweb
+-->
+
+Version two, with more detail.
+`
+
 // initVersionBumpRepo creates a fresh git repo at dir with a minimal
 // .docsweb.yaml and a.go (containing content), committed. Returns the repo
 // and the path to a.go.
 func initVersionBumpRepo(t *testing.T, dir, content string) (*git.Repository, string) {
 	t.Helper()
+	return initVersionBumpRepoFile(t, dir, "a.go", content)
+}
+
+// initVersionBumpRepoFile is like initVersionBumpRepo, but lets a caller
+// choose the defining file's name - e.g. a .md file, to exercise the
+// Markdown frontend (annotation.ParseMarkdownSource) rather than the regular
+// comment-block grammar.
+func initVersionBumpRepoFile(t *testing.T, dir, name, content string) (*git.Repository, string) {
+	t.Helper()
 	repo, err := git.PlainInit(dir, false)
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".docsweb.yaml"), []byte("name: widget\n"), 0o644))
-	path := filepath.Join(dir, "a.go")
+	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 
 	wt, err := repo.Worktree()
@@ -231,6 +268,54 @@ func TestCheckVersionBumpIgnoresChangesOutsideTheDocsweBlock(t *testing.T) {
 	// @docsweb block - not a documentation change, so no bump is required.
 	content := docV1 + "\nvar _ = 1\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	assert.NoError(t, err)
+}
+
+// TestCheckVersionBumpPassesForUnchangedMarkdownTarget is a regression test:
+// oldTarget must dispatch by file extension via collect.ParseFile, the same
+// way collect.AddScope does, rather than always calling
+// annotation.ParseSource. Before that fix, re-parsing a Markdown target's
+// base-commit content with the wrong grammar reconstructed it with an empty
+// Doc (ParseSource never pulls in the file's body the way
+// ParseMarkdownSource does), so an entirely unchanged Markdown target was
+// always misreported as "documentation changed since ... but the @define
+// version was not bumped".
+func TestCheckVersionBumpPassesForUnchangedMarkdownTarget(t *testing.T) {
+	dir := t.TempDir()
+	initVersionBumpRepoFile(t, dir, "a.md", mdV1)
+
+	// Nothing changed since the last commit at all.
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	assert.NoError(t, err)
+}
+
+// TestCheckVersionBumpDetectsMarkdownDocChangeRequiringBump proves the check
+// still does its job for a Markdown target once the regression above is
+// fixed: a real body change with no version bump must still be caught.
+func TestCheckVersionBumpDetectsMarkdownDocChangeRequiringBump(t *testing.T) {
+	dir := t.TempDir()
+	_, path := initVersionBumpRepoFile(t, dir, "a.md", mdV1)
+
+	// Uncommitted: the Markdown body changed, but @define's version and
+	// @changelog were left exactly as they were.
+	unbumped := strings.Replace(mdV2Full, "@define widget v1.1.0", "@define widget v1.0.0", 1)
+	require.NoError(t, os.WriteFile(path, []byte(unbumped), 0o644))
+
+	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version was not bumped")
+}
+
+// TestCheckVersionBumpPassesForBumpedMarkdownTarget confirms a properly
+// bumped-and-changelogged Markdown target passes, exercising the same
+// Markdown dispatch on the "everything updated correctly" path.
+func TestCheckVersionBumpPassesForBumpedMarkdownTarget(t *testing.T) {
+	dir := t.TempDir()
+	_, path := initVersionBumpRepoFile(t, dir, "a.md", mdV1)
+
+	require.NoError(t, os.WriteFile(path, []byte(mdV2Full), 0o644))
 
 	_, err := Run(Options{ConfigPath: filepath.Join(dir, ".docsweb.yaml")})
 	assert.NoError(t, err)

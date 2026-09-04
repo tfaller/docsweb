@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.7.0
+// @define check v0.8.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -16,7 +16,7 @@ package check
 // that documented changes bump a target's version and changelog - without
 // rendering any Markdown to HTML.
 // @uses annotation@v0.2.0
-// @uses collect@v0.5.0
+// @uses collect@v0.6.0
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.2.0
@@ -24,12 +24,17 @@ package check
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// No behavior change to `check` itself - `@uses` reference bumped to
-// [vcs](@link:vcs@v0.6.0)'s current version following its
-// `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now always taking
-// a repository-tree-relative path (the OS-absolute-path branch is gone).
-// previous entry with something appended or prepended to it, rather than a
-// genuine replacement - a common mistake in AI-generated documentation.
+// Fixed a real bug in **versionbump**: `oldTarget` always re-parsed a
+// comparison base's file content via `annotation.ParseSource` directly,
+// never dispatching to `annotation.ParseMarkdownSource` for a `.md` file the
+// way [collect.AddScope](@link:collect@v0.6.0) does - so a Markdown-defined
+// target's old `Doc` was silently reconstructed as empty, and every
+// *unchanged* Markdown target (this repo's own `docsweb.readme` included)
+// was falsely flagged as "documentation changed ... but the version wasn't
+// bumped". `oldTarget` now goes through the new
+// [collect.ParseFile](@link:collect@v0.6.0) instead, dispatching by
+// extension exactly like `AddScope` always has. `@uses` reference bumped to
+// collect's current version accordingly.
 // @doc
 // # Check
 //

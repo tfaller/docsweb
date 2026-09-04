@@ -1,24 +1,24 @@
 package build
 
 // @docsweb
-// @define build v0.13.0
+// @define build v0.14.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.7.0
-// @uses history@v0.2.0
+// @uses check@v0.8.0
+// @uses history@v0.3.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
 // @uses vcs@v0.6.0
 // @audience dev
 // @changelog
 // No behavior change to `build` itself - `@uses` references bumped to
-// [check](@link:check@v0.7.0), [history](@link:history@v0.2.0), and
-// [vcs](@link:vcs@v0.6.0)'s current versions, following `vcs.Repository`'s
-// path-handling unification (`FileContents`/`BlameAuthor`/`BlameAuthorAt`
-// now always take a repository-tree-relative path) rippling through both.
+// [check](@link:check@v0.8.0)'s and [history](@link:history@v0.3.0)'s
+// current versions, following their fix for a Markdown-defined target's old/
+// historic `Doc` being silently lost when re-parsed via the wrong grammar
+// (see [collect](@link:collect@v0.6.0)'s changelog).
 // @doc
 // # Build
 //

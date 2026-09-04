@@ -104,6 +104,41 @@ func TestWalkDiscoversEveryVersionAcrossHistory(t *testing.T) {
 	assert.Equal(t, map[string]bool{"v1.0.0": true, "v1.1.0": true, "v1.2.0": true}, got)
 }
 
+// mdBlockFor builds a Markdown file whose leading annotation comment defines
+// name/version, with body as the rest of the file (its real Doc, via the
+// Markdown frontend - annotation.ParseMarkdownSource).
+func mdBlockFor(name, version, body string) string {
+	return "<!--\n@docsweb\n@define " + name + " " + version + "\n@docsweb\n-->\n\n" + body + "\n"
+}
+
+// TestWalkReconstructsMarkdownTargetHistory is a regression test: Walk must
+// dispatch by file extension via collect.ParseFile, the same way
+// collect.AddScope does, rather than always calling annotation.ParseSource -
+// otherwise a Markdown-defined target's historic Doc (everything after its
+// leading comment) is silently lost, since ParseSource never reads a
+// Markdown file's body the way ParseMarkdownSource does.
+func TestWalkReconstructsMarkdownTargetHistory(t *testing.T) {
+	repo := newTestRepo(t)
+	repo.write(".docsweb.yaml", "name: root\n")
+	repo.write("app.md", mdBlockFor("app", "v1.0.0", "Version one."))
+	repo.commit("v1.0.0")
+	repo.write("app.md", mdBlockFor("app", "v1.1.0", "Version two."))
+	repo.commit("v1.1.0")
+
+	r, configPath, cfg := repo.open(".docsweb.yaml")
+	found, err := Walk(r, configPath, cfg)
+	require.NoError(t, err)
+
+	versions := found["root.app"]
+	require.Len(t, versions, 2)
+	docs := map[string]string{}
+	for _, v := range versions {
+		docs[v.Target.Version.String()] = v.Target.Doc
+	}
+	assert.Equal(t, "Version one.", docs["v1.0.0"])
+	assert.Equal(t, "Version two.", docs["v1.1.0"])
+}
+
 func TestWalkRootCommitCountsAsAdded(t *testing.T) {
 	repo := newTestRepo(t)
 	repo.write(".docsweb.yaml", "name: root\n")

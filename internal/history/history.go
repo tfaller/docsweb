@@ -5,23 +5,28 @@
 package history
 
 // @docsweb
-// @define history v0.2.0
+// @define history v0.3.0
 // @name History
 // @summary
 // Walks a repository's first-parent commit log backward from its pinned
 // commit, reconstructing every past version of every target defined in the
 // root scope or a local (path-based) referenced scope.
-// @uses collect@v0.5.0
+// @uses collect@v0.6.0
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses model@v0.3.0
 // @uses vcs@v0.6.0
 // @audience dev
 // @changelog
-// No behavior change to `history` itself - `@uses` reference bumped to
-// [vcs](@link:vcs@v0.6.0)'s current version following its
-// `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now always taking
-// a repository-tree-relative path (the OS-absolute-path branch is gone).
+// Fixed a real bug: `Walk` always re-parsed a defining file's older commit
+// via `annotation.ParseSource` directly, never dispatching to
+// `annotation.ParseMarkdownSource` for a `.md` file the way
+// [collect.AddScope](@link:collect@v0.6.0) does - so a Markdown-defined
+// target's historic `Doc` (everything after its leading comment) was
+// silently lost at every past version. `Walk` now goes through the new
+// [collect.ParseFile](@link:collect@v0.6.0) instead, dispatching by
+// extension exactly like `AddScope` always has. `@uses` reference bumped to
+// collect's current version accordingly.
 // @doc
 // # History
 //
@@ -37,8 +42,10 @@ package history
 //     informative: the version it named was already captured when the walk
 //     later reaches the commit that first introduced it. The file (as
 //     committed at that commit) is re-parsed via
-//     [annotation](@link:annotation@v0.1.0) and converted via
-//     [collect.ToTarget](@link:collect@v0.5.0), exactly like re-parsing a
+//     [collect.ParseFile](@link:collect@v0.6.0) - dispatching by extension
+//     exactly like a live [collect.AddScope](@link:collect@v0.6.0) walk
+//     would, so a Markdown-defined target's historic `Doc` is recovered too
+//     - and converted via `collect.ToTarget`, exactly like re-parsing a
 //     single old revision for a diff - malformed historic content is
 //     skipped rather than failing the walk, since a past commit can't be
 //     fixed after the fact.
@@ -81,7 +88,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tfaller/docsweb/internal/annotation"
 	"github.com/tfaller/docsweb/internal/collect"
 	"github.com/tfaller/docsweb/internal/config"
 	"github.com/tfaller/docsweb/internal/ignore"
@@ -177,7 +183,7 @@ func Walk(repo *vcs.Repository, rootConfigRel string, rootCfg *config.Config) (m
 				continue
 			}
 
-			docs, err := annotation.ParseSource(content)
+			docs, err := collect.ParseFile(p, content)
 			if err != nil {
 				continue
 			}

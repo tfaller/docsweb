@@ -4,7 +4,7 @@
 package collect
 
 // @docsweb
-// @define collect v0.5.0
+// @define collect v0.6.0
 // @name Collect
 // @summary
 // Walks a scope's source tree, extracts docsweb blocks, and builds a
@@ -15,18 +15,20 @@ package collect
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// **`Options.Root` is now an `fs.FS`, not a directory path.** `AddScope`
-// walks it with `fs.WalkDir`/`fs.ReadFile` instead of `filepath.WalkDir`/
-// `os.ReadFile`, so a scope's file tree no longer has to exist on disk - a
-// local scope wraps its directory in `os.DirFS`, while a remote (`git:`)
-// scope's tree now comes straight from
-// [vcs.OpenScope](@link:vcs@v0.4.0)'s `fs.FS` over a resolved commit, with
-// no worktree ever checked out to disk (see README.md's "Scopes" section).
-// `Options.Exclude` and the new `Options.IgnoreOffset` (replacing
-// `IgnoreBase`) are now slash-separated paths relative to `Root`, rather
-// than OS directory paths - callers building either of those must be
-// changed accordingly. Breaking for `Options`; `ToTarget`'s own behavior is
-// unchanged.
+// New exported `ParseFile(name, src string) ([]annotation.TargetDoc, error)`
+// factors `AddScope`'s by-extension dispatch (Markdown files via
+// `annotation.ParseMarkdownSource`, anything else via `annotation.ParseSource`)
+// out into a reusable function, fixing a real bug: [check](@link:check@v0.7.0)'s
+// version-bump check and [history](@link:history@v0.2.0)'s historic-version
+// discovery both re-parsed a file's *older* git revision by calling
+// `annotation.ParseSource` directly, unconditionally - so a Markdown-defined
+// target's past content was silently reconstructed with an empty `Doc`
+// (never reading the file's body the way `ParseMarkdownSource` does),
+// causing false "documentation changed but the version wasn't bumped"
+// failures for any unchanged Markdown target (this repo's own README.md
+// included) and silently empty historic pages for one that did change. Both
+// callers now go through `ParseFile` instead, the same way `AddScope`
+// always has.
 // @doc
 // # Collect
 //
@@ -36,11 +38,15 @@ package collect
 // involved either way) recursively, skips `.git`, whatever
 // `Options.Exclude` names (other scopes' subtrees, so a shared root walk
 // never double-scans them) and whatever `Options.Ignore` matches, then
-// hands every remaining file's contents to
-// [annotation](@link:annotation@v0.1.0)'s
-// [block grammar](@link:annotation@v0.1.0#grammar). Non-source-looking
-// extensions (images, archives, binaries) are skipped outright without
-// being read.
+// hands every remaining file's contents to `ParseFile`, which dispatches by
+// extension to either [annotation](@link:annotation@v0.1.0)'s
+// [block grammar](@link:annotation@v0.1.0#grammar) or, for a `.md`/
+// `.markdown` file, its Markdown frontend. Non-source-looking extensions
+// (images, archives, binaries) are skipped outright without being read.
+// `ParseFile` is exported so a caller re-parsing a single file outside of a
+// full `AddScope` walk - e.g. an older git revision of a file, to diff
+// against the current one - dispatches exactly the same way a live
+// collection would.
 //
 // Every `annotation.TargetDoc` that comes back is converted from raw
 // strings into validated [model](@link:model@v0.1.0) types by `ToTarget`:
@@ -161,21 +167,7 @@ func (r *Registry) AddScope(opts Options) error {
 			return fmt.Errorf("reading %s: %w", p, err)
 		}
 
-		if isMarkdownFile(d.Name()) {
-			doc, err := annotation.ParseMarkdownSource(string(src))
-			if err != nil {
-				return fmt.Errorf("%s: %w", p, err)
-			}
-			if doc == nil {
-				return nil
-			}
-			if err := r.addTargetDoc(opts.Scope, p, *doc); err != nil {
-				return fmt.Errorf("%s: %w", p, err)
-			}
-			return nil
-		}
-
-		docs, err := annotation.ParseSource(string(src))
+		docs, err := ParseFile(p, string(src))
 		if err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
@@ -186,6 +178,30 @@ func (r *Registry) AddScope(opts Options) error {
 		}
 		return nil
 	})
+}
+
+// ParseFile parses a file's content into zero or more TargetDocs, dispatching
+// by name's extension exactly like AddScope does: a Markdown file (.md/
+// .markdown) is parsed via annotation.ParseMarkdownSource (at most one
+// target, from a single leading @docsweb comment - an empty result, not an
+// error, if the file has none), anything else via annotation.ParseSource
+// (any number of @docsweb blocks via the regular comment-block grammar).
+// Exported so a caller re-parsing a single file outside of a full AddScope
+// walk - e.g. an older git revision of a file, to diff against the current
+// one - dispatches exactly the same way a live collection would, rather than
+// always assuming the non-Markdown grammar.
+func ParseFile(name string, src string) ([]annotation.TargetDoc, error) {
+	if isMarkdownFile(name) {
+		doc, err := annotation.ParseMarkdownSource(src)
+		if err != nil {
+			return nil, err
+		}
+		if doc == nil {
+			return nil, nil
+		}
+		return []annotation.TargetDoc{*doc}, nil
+	}
+	return annotation.ParseSource(src)
 }
 
 func isExcluded(p string, excluded []string) bool {

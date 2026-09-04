@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/tfaller/docsweb/internal/annotation"
 	"github.com/tfaller/docsweb/internal/collect"
 	"github.com/tfaller/docsweb/internal/model"
 	"github.com/tfaller/docsweb/internal/vcs"
@@ -142,13 +141,17 @@ func ciBaseRevision() (rev string, mergeBase bool, ok bool) {
 
 // oldTarget re-parses sourcePath (repository-tree-relative, slash-separated
 // - see vcs.Repository.FileContents) as it was committed in base and looks
-// up t's own target within it. found is false (with no error) if the file
-// didn't exist in base at all, or existed but didn't yet define this target
-// - both mean there's no prior revision to diff against (a brand-new file or
-// target), not a documentation change to flag. A malformed old revision
-// (e.g. one written before some annotation grammar rule existed) is treated
-// the same way rather than as a hard failure - this check is best-effort
-// VCS metadata, not a correctness requirement of the current working tree.
+// up t's own target within it, dispatching by t.SourceFiles[0]'s extension
+// via collect.ParseFile exactly like a live AddScope walk would (so a
+// Markdown-defined target's old @doc - everything after its leading
+// comment - is reconstructed too, not just its comment's own tags). found is
+// false (with no error) if the file didn't exist in base at all, or existed
+// but didn't yet define this target - both mean there's no prior revision to
+// diff against (a brand-new file or target), not a documentation change to
+// flag. A malformed old revision (e.g. one written before some annotation
+// grammar rule existed) is treated the same way rather than as a hard
+// failure - this check is best-effort VCS metadata, not a correctness
+// requirement of the current working tree.
 func oldTarget(repo *vcs.Repository, base *vcs.Commit, sourcePath string, t *model.Target) (*model.Target, bool, error) {
 	content, ok, err := repo.FileContents(base, sourcePath)
 	if err != nil {
@@ -158,7 +161,7 @@ func oldTarget(repo *vcs.Repository, base *vcs.Commit, sourcePath string, t *mod
 		return nil, false, nil
 	}
 
-	docs, err := annotation.ParseSource(content)
+	docs, err := collect.ParseFile(t.SourceFiles[0], content)
 	if err != nil {
 		return nil, false, nil
 	}
