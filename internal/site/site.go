@@ -4,20 +4,22 @@
 package site
 
 // @docsweb
-// @define site v0.8.0
+// @define site v0.9.0
 // @name Site
 // @summary
 // Renders a build.Result into a static HTML site: one page per target
 // version (current and past), one dedicated outdated-uses page, and an
 // index page linking everything together.
-// @uses build@v0.14.0
+// @uses build@v0.15.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
 // No behavior change to `site` itself - `@uses` reference bumped to
-// [build](@link:build@v0.14.0)'s current version, itself just a refreshed
-// `check`/`history` reference following their Markdown-target re-parsing
-// bug fix (no behavior change in `site` or `build` themselves).
+// [build](@link:build@v0.15.0)'s current version, itself just refreshed
+// `check`/`history`/`vcs` references following `check`'s new
+// credential-aware remote-scope cloning (see the new
+// [auth](@link:auth@v0.1.0) package) - no behavior change in `site` or
+// `build` themselves.
 // @doc
 // # Site
 //

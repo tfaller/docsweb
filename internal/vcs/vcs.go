@@ -5,7 +5,7 @@
 package vcs
 
 // @docsweb
-// @define vcs v0.6.0
+// @define vcs v0.7.0
 // @name VCS
 // @summary
 // Git lookups: blame (who last touched a given source line, at any commit -
@@ -18,38 +18,19 @@ package vcs
 // older revision.
 // @audience dev
 // @changelog
-// **Breaking:** `Repository.FileContents`/`BlameAuthor`/`BlameAuthorAt` now
-// always take a repository-tree-relative, slash-separated path - the
-// OS-absolute-path branch (for a `Repository` opened via `Open`) is gone.
-// It only ever existed as bookkeeping on this package's side: once a
-// `*git.Repository`/`*object.Commit` handle exists, every go-git call here
-// (`c.File`, `git.Blame`, `ResolveRevision`, `MergeBase`) already worked
-// purely on repo-relative strings, never an OS path. The new exported
-// `Repository.RelPath(absPath)` is the old internal conversion, kept for a
-// caller that still only has an OS-absolute scope directory (e.g. a local
-// scope's root) and needs its one-time repository-relative offset - meant
-// to be called once per scope, not once per file, unlike the old implicit
-// per-call conversion. For a `Repository` with no on-disk root (one opened
-// via `OpenScope`), `RelPath` returns its input unchanged, so a caller can
-// pass a local scope's OS-absolute root or a remote scope's already-relative
-// one (`RemoteScope.Path`) through the same call uniformly.
-//
-// **`CloneOrFetch` is replaced by `OpenScope(cacheDir, repoURL, ref)`,
-// which never checks a worktree out to disk.** It still ensures a local,
-// up-to-date mirror of repoURL exists under cacheDir (cloning on first use,
-// fetching `origin` into that same mirror on every later call) and resolves
-// ref the same way (a branch, tag, or commit SHA, in that order, or the
-// repository's default branch when ref is empty) - but the mirror is now
-// *bare*, and instead of a working-tree root, OpenScope returns a read-only
-// `fs.FS` over the resolved commit's file tree (via
-// `github.com/tfaller/go-git-fs`'s `OpenFromCommit`, reading straight out
-// of git's object store) alongside a `Repository` already pinned to that
-// same commit, ready for `BlameAuthor`/`FileContents` lookups with no
-// on-disk root to discover - a bare mirror holds only git's history/object
-// data, which is both smaller and avoids ever having to reconcile a stale
-// working tree. Used by [check](@link:check@v0.4.0)'s scope collection to
-// materialize a `git:` referenced scope's file tree (see README.md's
-// "Scopes" section) before walking it. Breaking: `CloneOrFetch` is gone.
+// `OpenScope(cacheDir, repoURL, ref, clientOpts...)` gained a variadic
+// `clientOpts ...client.Option` parameter, passed straight through to
+// go-git's own clone/fetch (`git.CloneOptions.ClientOptions`/
+// `git.FetchOptions.ClientOptions`) - this is how a caller authenticates a
+// private `repoURL` (e.g. `client.WithHTTPAuth(...)`). `vcs` deliberately
+// resolves no credentials of its own and gains no new dependency to do
+// this: it stays a thin go-git wrapper that takes whatever auth a caller
+// already worked out, rather than knowing anything about *which* hosting
+// provider `repoURL` belongs to or how that provider likes to be
+// authenticated - see the new [auth](@link:auth@v0.1.0) package, whose
+// `Registry.ClientOptions(repoURL)` is exactly this parameter's intended
+// source. Purely additive: every existing 3-argument call site still
+// compiles unchanged.
 // @doc
 // # VCS
 //
@@ -69,7 +50,10 @@ package vcs
 // calls by resolving through that same mirror's one local branch ref
 // (created once, by the initial clone, and never touched again) rather
 // than through `HEAD` itself, since a fetch only ever moves the matching
-// remote-tracking ref.
+// remote-tracking ref. Its variadic `clientOpts` are forwarded unchanged
+// to both the clone and every later fetch, letting a caller authenticate
+// a private `repoURL` (e.g. `client.WithHTTPAuth(...)`) without `vcs`
+// itself knowing anything about where those credentials came from.
 //
 // `Open` discovers the git repository containing a directory (walking
 // upward for a `.git` entry, like the git CLI) and returns a `Repository`

@@ -1,11 +1,18 @@
 <!--
     @docsweb
-    @define readme v1.0.0
+    @define readme v1.1.0
     @name README
     @summary
     Project overview, the full annotation grammar spec, and the
     configuration reference - dogfooded as a real docsweb target via the
     Markdown frontend described in its own "Markdown files" section below.
+    @changelog
+    Documented private `git:` scopes: a central credential registry
+    (see the new `auth` package) resolves HTTP credentials for a scope's
+    URL, trying each registered provider in order - today, a GitLab CI
+    job's own `CI_JOB_TOKEN`, authenticating an `https://gitlab.com/...`
+    scope automatically when docsweb itself runs as a GitLab CI job. See
+    "Scopes" > "Private git: scopes" below.
 -->
 
 # docsweb
@@ -226,6 +233,21 @@ local one - its own `.docsweb.yaml` must still self-declare the expected name, t
 directory (a remote scope's content is someone else's repository, so the root's `ignore:` rules
 don't reach into it). `docsweb-cache` is reused and only fetched (not re-cloned) across builds, so
 it's worth adding to the root scope's own `.gitignore` and to its `.docsweb.yaml` `ignore:` list.
+
+### Private `git:` scopes
+
+A `git:` URL that needs credentials is cloned/fetched over HTTPS using whatever a central
+credential registry can work out for it, without `path`/`ref` (or anything else in
+`.docsweb.yaml`) ever needing to name a credential directly. Each registered provider is asked, in
+order, whether it recognizes the URL - the first one that does wins; a URL none of them recognize
+(the common case: a public repository) is cloned/fetched unauthenticated, exactly as if the
+registry didn't exist.
+
+Today's one built-in provider: when docsweb itself is run as a GitLab CI job, cloning/fetching a
+`https://gitlab.com/...` scope is authenticated with that job's own `CI_JOB_TOKEN` - the same
+short-lived, automatically-provided token `git clone` itself would use inside a `.gitlab-ci.yml`
+job - so a build can reference another private project on the same GitLab instance with no
+separately provisioned credential at all.
 
 `ignore` excludes files and directories from every scope this config declares, relative to the
 config's own directory - useful for keeping generated fixtures, test-only data, or build output

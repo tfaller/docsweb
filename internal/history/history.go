@@ -5,7 +5,7 @@
 package history
 
 // @docsweb
-// @define history v0.3.0
+// @define history v0.4.0
 // @name History
 // @summary
 // Walks a repository's first-parent commit log backward from its pinned
@@ -15,18 +15,14 @@ package history
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses model@v0.3.0
-// @uses vcs@v0.6.0
+// @uses vcs@v0.7.0
 // @audience dev
 // @changelog
-// Fixed a real bug: `Walk` always re-parsed a defining file's older commit
-// via `annotation.ParseSource` directly, never dispatching to
-// `annotation.ParseMarkdownSource` for a `.md` file the way
-// [collect.AddScope](@link:collect@v0.6.0) does - so a Markdown-defined
-// target's historic `Doc` (everything after its leading comment) was
-// silently lost at every past version. `Walk` now goes through the new
-// [collect.ParseFile](@link:collect@v0.6.0) instead, dispatching by
-// extension exactly like `AddScope` always has. `@uses` reference bumped to
-// collect's current version accordingly.
+// No behavioral change here - `@uses` reference bumped to
+// [vcs](@link:vcs@v0.7.0)'s current version, which gained a purely
+// additive `OpenScope` parameter (credentials for cloning a private remote
+// scope - see [auth](@link:auth@v0.1.0)) that `history` itself never
+// calls.
 // @doc
 // # History
 //

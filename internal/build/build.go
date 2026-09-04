@@ -1,24 +1,24 @@
 package build
 
 // @docsweb
-// @define build v0.14.0
+// @define build v0.15.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.8.0
-// @uses history@v0.3.0
+// @uses check@v0.9.0
+// @uses history@v0.4.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
-// @uses vcs@v0.6.0
+// @uses vcs@v0.7.0
 // @audience dev
 // @changelog
 // No behavior change to `build` itself - `@uses` references bumped to
-// [check](@link:check@v0.8.0)'s and [history](@link:history@v0.3.0)'s
-// current versions, following their fix for a Markdown-defined target's old/
-// historic `Doc` being silently lost when re-parsed via the wrong grammar
-// (see [collect](@link:collect@v0.6.0)'s changelog).
+// [check](@link:check@v0.9.0)'s, [history](@link:history@v0.4.0)'s, and
+// [vcs](@link:vcs@v0.7.0)'s current versions, following `check`'s new
+// credential-aware remote-scope cloning (see the new
+// [auth](@link:auth@v0.1.0) package).
 // @doc
 // # Build
 //

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/client"
 	gitfs "github.com/tfaller/go-git-fs"
 )
 
@@ -23,21 +24,24 @@ import (
 // cloning from scratch, so repeated builds against the same repository stay
 // cheap. ref is resolved as a branch, a tag, or a commit SHA (in that
 // order); an empty ref uses the repository's default branch (HEAD at clone
-// time).
-func OpenScope(cacheDir, repoURL, ref string) (fs.FS, *Repository, error) {
+// time). clientOpts, if given, are passed straight through to go-git's
+// clone/fetch (e.g. client.WithHTTPAuth(...), for a private repoURL) -
+// vcs itself resolves no credentials of its own; see internal/auth for a
+// caller that builds these from a repository URL.
+func OpenScope(cacheDir, repoURL, ref string, clientOpts ...client.Option) (fs.FS, *Repository, error) {
 	dir := filepath.Join(cacheDir, cloneDirName(repoURL))
 
 	repo, err := git.PlainOpen(dir)
 	switch {
 	case errors.Is(err, git.ErrRepositoryNotExists):
-		repo, err = git.PlainClone(dir, &git.CloneOptions{URL: repoURL, Tags: git.AllTags, Bare: true})
+		repo, err = git.PlainClone(dir, &git.CloneOptions{URL: repoURL, Tags: git.AllTags, Bare: true, ClientOptions: clientOpts})
 		if err != nil {
 			return nil, nil, fmt.Errorf("vcs: cloning %s: %w", repoURL, err)
 		}
 	case err != nil:
 		return nil, nil, fmt.Errorf("vcs: opening cached clone of %s at %s: %w", repoURL, dir, err)
 	default:
-		err = repo.Fetch(&git.FetchOptions{RemoteName: "origin", Tags: git.AllTags, Force: true})
+		err = repo.Fetch(&git.FetchOptions{RemoteName: "origin", Tags: git.AllTags, Force: true, ClientOptions: clientOpts})
 		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 			return nil, nil, fmt.Errorf("vcs: fetching %s: %w", repoURL, err)
 		}

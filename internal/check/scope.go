@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/tfaller/docsweb/internal/auth"
 	"github.com/tfaller/docsweb/internal/collect"
 	"github.com/tfaller/docsweb/internal/config"
 	"github.com/tfaller/docsweb/internal/ignore"
@@ -59,6 +60,11 @@ func checkScopes(ctx *context) error {
 	// regardless of how many remote scopes exist) the whole cache
 	// directory every remote scope is mirrored into.
 	excludes := []string{cacheDirName}
+	// credentials resolves HTTP auth for a remote scope's git URL (e.g. a
+	// GitLab CI job token for a private gitlab.com repository) - see
+	// internal/auth. A public repository needs no credentials, so a nil
+	// result here is the common case, not an error.
+	credentials := auth.Default()
 
 	for name, sc := range cfg.Scopes {
 		if name == cfg.Name {
@@ -71,7 +77,11 @@ func checkScopes(ctx *context) error {
 		)
 
 		if sc.Remote() {
-			treeFS, repo, err := vcs.OpenScope(cacheDir, sc.Git, sc.Ref)
+			clientOpts, err := credentials.ClientOptions(sc.Git)
+			if err != nil {
+				return fmt.Errorf("scope %q: resolving credentials for %s: %w", name, sc.Git, err)
+			}
+			treeFS, repo, err := vcs.OpenScope(cacheDir, sc.Git, sc.Ref, clientOpts...)
 			if err != nil {
 				return fmt.Errorf("scope %q: %w", name, err)
 			}

@@ -7,34 +7,33 @@
 package check
 
 // @docsweb
-// @define check v0.8.0
+// @define check v0.9.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
-// (opening any remote scope's resolved commit first), audience mapping, use
-// resolution, anchor uniqueness, link resolution, and (docsweb-check-only)
-// that documented changes bump a target's version and changelog - without
-// rendering any Markdown to HTML.
+// (opening any remote scope's resolved commit first, authenticated via
+// internal/auth when needed), audience mapping, use resolution, anchor
+// uniqueness, link resolution, and (docsweb-check-only) that documented
+// changes bump a target's version and changelog - without rendering any
+// Markdown to HTML.
 // @uses annotation@v0.2.0
+// @uses auth@v0.1.0
 // @uses collect@v0.6.0
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.2.0
-// @uses vcs@v0.6.0
+// @uses vcs@v0.7.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Fixed a real bug in **versionbump**: `oldTarget` always re-parsed a
-// comparison base's file content via `annotation.ParseSource` directly,
-// never dispatching to `annotation.ParseMarkdownSource` for a `.md` file the
-// way [collect.AddScope](@link:collect@v0.6.0) does - so a Markdown-defined
-// target's old `Doc` was silently reconstructed as empty, and every
-// *unchanged* Markdown target (this repo's own `docsweb.readme` included)
-// was falsely flagged as "documentation changed ... but the version wasn't
-// bumped". `oldTarget` now goes through the new
-// [collect.ParseFile](@link:collect@v0.6.0) instead, dispatching by
-// extension exactly like `AddScope` always has. `@uses` reference bumped to
-// collect's current version accordingly.
+// **checkScopes** now resolves HTTP credentials for every remote (`git:`)
+// scope's URL via the new [auth](@link:auth@v0.1.0) package's
+// `auth.Default()` registry before calling
+// [vcs.OpenScope](@link:vcs@v0.7.0), so a private repository (today:
+// gitlab.com, authenticated with a GitLab CI job's own `CI_JOB_TOKEN`) can
+// be cloned/fetched the same way a public one always could. A URL no
+// registered provider recognizes - the common case - still clones/fetches
+// unauthenticated, exactly as before this change.
 // @doc
 // # Check
 //
@@ -53,11 +52,12 @@ package check
 //
 // - **scopes** - loads the root `.docsweb.yaml`, opens/fetches any
 //   declared `git:` scope's resolved commit via
-//   [vcs.OpenScope](@link:vcs@v0.4.0) (a bare mirror under `docsweb-cache`,
-//   no worktree checkout), verifies every declared referenced scope's own
-//   config against the parent's `scope:` key (see
-//   [config](@link:config@v0.3.0)'s "Scopes" section), and walks every
-//   scope's file tree via [collect](@link:collect@v0.5.0).
+//   [vcs.OpenScope](@link:vcs@v0.7.0) (a bare mirror under `docsweb-cache`,
+//   no worktree checkout, authenticated via [auth](@link:auth@v0.1.0) when
+//   a registered provider recognizes the scope's URL), verifies every
+//   declared referenced scope's own config against the parent's `scope:`
+//   key (see [config](@link:config@v0.3.0)'s "Scopes" section), and walks
+//   every scope's file tree via [collect](@link:collect@v0.5.0).
 // - **audiences** - validates every target's (and changelog entry's)
 //   `@audience` names against the config's declared `audience:` map.
 // - **uses** - validates that every `@uses` lands on an existing target
