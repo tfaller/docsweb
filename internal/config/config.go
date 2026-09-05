@@ -4,26 +4,25 @@
 package config
 
 // @docsweb
-// @define config v0.3.1
+// @define config v0.3.2
 // @name Config
 // @summary
 // Loads and validates .docsweb.yaml: a scope's own self-declared name,
 // declared audiences (with combine), referenced scopes (local or remote),
-// and repo-wide ignore rules.
+// and a scope's own ignore rules.
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Fixed: a `scope`'s `path:` is now normalized (via the new unexported
-// `normalizeScopePath`) into the canonical form the rest of docsweb
-// expects - "", ".", "./", "/", "someDir/", "./someDir", "./someDir/",
-// "/someDir" and "/someDir/" now all resolve the same way instead of only
-// one exact spelling working. This matters most for a remote (`git:`)
-// scope's `path:`, which [check](@link:check@v0.4.0) passes straight to
-// `fs.Sub` - `fs.Sub`'s `fs.ValidPath` requirement rejected every form
-// above except a bare relative path with no trailing slash, so a
-// human-written `./someDir/`-style path failed the build with an
-// `fs.Sub` error instead of being accepted. Non-breaking; every path that
-// already worked still resolves to the same place.
+// Fixed the `Ignore` bullet below: it claimed this config's `ignore:` list
+// is "applied to every scope", which described
+// [check](@link:check@v0.10.0)'s actual behavior at the time, but not the
+// intended one - a local referenced scope's tree was filtered by the
+// *root* config's `ignore:` rules (re-anchored to its subdirectory)
+// instead of its own, and a remote scope's own `ignore:` list was never
+// applied at all. Now that check's scope collection walks every
+// referenced scope (local or remote) with only its own `.docsweb.yaml`
+// `ignore:` list, this bullet describes that as the actual contract - the
+// root config's list never reaches into a referenced scope's tree.
 // @doc
 // # Config
 //
@@ -46,8 +45,12 @@ package config
 //   collection opens it (via [vcs.OpenScope](@link:vcs@v0.4.0), reading its
 //   resolved commit's tree directly rather than checking out a worktree)
 //   before verifying and walking it exactly like a local one.
-// - `Ignore` - the repo-wide `ignore:` list, handed to
-//   [ignore](@link:ignore@v0.1.0) and applied to every scope.
+// - `Ignore` - this config's own `ignore:` list, handed to
+//   [ignore](@link:ignore@v0.1.0) and applied only to the scope that
+//   declares it: [check](@link:check@v0.10.0)'s scope collection walks
+//   each scope (root or referenced, local or remote) with only its own
+//   `.docsweb.yaml`'s `Ignore`, never a parent's - see check's "scopes"
+//   check.
 //
 // Duplicate audience or scope names are rejected for free, since
 // `yaml.v3` errors on a mapping with a repeated key rather than silently

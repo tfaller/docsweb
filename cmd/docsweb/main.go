@@ -6,23 +6,22 @@
 package main
 
 // @docsweb
-// @define docsweb v0.10.0
+// @define docsweb v0.12.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.15.0
-// @uses check@v0.9.0
-// @uses site@v0.9.0
+// @uses build@v0.16.0
+// @uses check@v0.10.0
+// @uses site@v0.10.0
 // @audience dev, user
 // @changelog
 // No behavior change to this CLI itself - `@uses` references bumped to
-// [build](@link:build@v0.15.0)/[check](@link:check@v0.9.0)/
-// [site](@link:site@v0.9.0)'s current versions, following `check`'s new
-// support for cloning a private remote (`git:`) scope over HTTPS (a
-// GitLab CI job's own token, for now - see the new
-// [auth](@link:auth@v0.1.0) package).
+// [build](@link:build@v0.16.0)'s, [check](@link:check@v0.10.0)'s, and
+// [site](@link:site@v0.10.0)'s current versions, following a fix to
+// `checkScopes`: a referenced scope (local or remote) is now walked with
+// only its own `.docsweb.yaml` `ignore:` rules, never the root config's.
 // @doc
 // # docsweb
 //

@@ -140,17 +140,3 @@ func TestAddScopeMarkdownDocTagErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "@doc is not allowed")
 }
-
-func TestAddScopeIgnoreOffsetIsPrependedBeforeMatching(t *testing.T) {
-	r := NewRegistry()
-	err := r.AddScope(Options{
-		Scope: "", Root: os.DirFS("testdata/ignoretest"),
-		Ignore:       ignore.Compile([]string{"ignoretest/skip/"}),
-		IgnoreOffset: "ignoretest",
-	})
-	require.NoError(t, err)
-
-	_, ok := r.Get("kept")
-	assert.True(t, ok)
-	assert.Len(t, r.Targets(), 1)
-}

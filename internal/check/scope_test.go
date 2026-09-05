@@ -64,6 +64,85 @@ func TestCheckScopesClonesRemoteScope(t *testing.T) {
 	assert.DirExists(t, filepath.Join(rootDir, "docsweb-cache"))
 }
 
+func TestCheckScopesRemoteScopeAppliesOwnIgnoreRules(t *testing.T) {
+	remoteDir := t.TempDir()
+	initGitScope(t, remoteDir, "upstream", "widget")
+
+	// A second file redefining "widget" would normally be a hard duplicate
+	// error - unless the remote scope's own ignore rules (declared in its
+	// own .docsweb.yaml, not the root's) exclude it.
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, ".docsweb.yaml"), []byte("name: upstream\nignore:\n    - /excluded.go\n"), 0o644))
+	src := "package remote\n\n/*\n    @docsweb\n    @define widget v1.0.0\n    @doc\n    Duplicate, but ignored.\n    @docsweb\n*/\n\nfunc Dup() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, "excluded.go"), []byte(src), 0o644))
+
+	repo, err := git.PlainOpen(remoteDir)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add(".")
+	require.NoError(t, err)
+	author := object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err = wt.Commit("add ignored duplicate", &git.CommitOptions{Author: &author})
+	require.NoError(t, err)
+
+	rootDir := t.TempDir()
+	cfgPath := writeRootConfig(t, rootDir, "name: root\nscope:\n    upstream:\n        git: "+remoteDir+"\n        path: .\n")
+
+	result, err := Run(Options{ConfigPath: cfgPath})
+	require.NoError(t, err)
+	require.Len(t, result.Registry.Targets(), 1)
+	_, ok := result.Registry.Get("upstream.widget")
+	assert.True(t, ok)
+}
+
+func TestCheckScopesLocalScopeAppliesOwnIgnoreRules(t *testing.T) {
+	rootDir := t.TempDir()
+	scopeDir := filepath.Join(rootDir, "sub")
+	require.NoError(t, os.MkdirAll(scopeDir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, ".docsweb.yaml"), []byte("name: sub\nignore:\n    - /excluded.go\n"), 0o644))
+	src := "package sub\n\n/*\n    @docsweb\n    @define widget v1.0.0\n    @doc\n    Sub docs.\n    @docsweb\n*/\n\nfunc F() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, "a.go"), []byte(src), 0o644))
+
+	// Duplicate, but excluded by "sub"'s own ignore: rules, which the root
+	// config never declares - only the referenced scope's own
+	// .docsweb.yaml does.
+	dup := "package sub\n\n/*\n    @docsweb\n    @define widget v1.0.0\n    @doc\n    Duplicate, but ignored.\n    @docsweb\n*/\n\nfunc Dup() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, "excluded.go"), []byte(dup), 0o644))
+
+	cfgPath := writeRootConfig(t, rootDir, "name: root\nscope:\n    sub:\n        path: sub\n")
+
+	result, err := Run(Options{ConfigPath: cfgPath})
+	require.NoError(t, err)
+	require.Len(t, result.Registry.Targets(), 1)
+	_, ok := result.Registry.Get("sub.widget")
+	assert.True(t, ok)
+}
+
+// The root config's own ignore: rules describe the root scope's own tree
+// only - they must not reach into a local referenced scope's tree, even
+// though it lives on disk underneath the root scope's own directory.
+func TestCheckScopesLocalScopeIgnoresRootIgnoreRules(t *testing.T) {
+	rootDir := t.TempDir()
+	scopeDir := filepath.Join(rootDir, "sub")
+	require.NoError(t, os.MkdirAll(scopeDir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, ".docsweb.yaml"), []byte("name: sub\n"), 0o644))
+	src := "package sub\n\n/*\n    @docsweb\n    @define widget v1.0.0\n    @doc\n    Sub docs.\n    @docsweb\n*/\n\nfunc F() {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, "widget.go"), []byte(src), 0o644))
+
+	// The root's own ignore: rule names this file by its full root-relative
+	// path - if it were (wrongly) applied to the "sub" scope's own walk,
+	// "widget" would never be found.
+	cfgPath := writeRootConfig(t, rootDir, "name: root\nignore:\n    - /sub/widget.go\nscope:\n    sub:\n        path: sub\n")
+
+	result, err := Run(Options{ConfigPath: cfgPath})
+	require.NoError(t, err)
+	require.Len(t, result.Registry.Targets(), 1)
+	_, ok := result.Registry.Get("sub.widget")
+	assert.True(t, ok)
+}
+
 func TestCheckScopesRemoteScopeNameMismatch(t *testing.T) {
 	remoteDir := t.TempDir()
 	initGitScope(t, remoteDir, "actualname", "widget")

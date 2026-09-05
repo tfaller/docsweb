@@ -93,18 +93,11 @@ type Options struct {
 	// output) and must not be scanned as part of this one.
 	Exclude []string
 	// Ignore, if set, is matched against every file/directory found under
-	// Root (as a path relative to wherever Ignore's patterns are
-	// anchored - see IgnoreOffset) and excludes whatever it matches, same
-	// as a real .gitignore would.
+	// Root (as a path relative to Root itself) and excludes whatever it
+	// matches, same as a real .gitignore would. Each scope is walked with
+	// only its own .docsweb.yaml's ignore: rules - a referenced scope's
+	// tree is never filtered by another scope's rules.
 	Ignore *ignore.Matcher
-	// IgnoreOffset is Root's own path relative to wherever Ignore's
-	// patterns are anchored (e.g. the root scope's own directory) -
-	// prepended to a file's Root-relative path before matching, so a
-	// scope walked from underneath that anchor can still be matched
-	// against rules declared there. Empty when Root already is that
-	// anchor, which is also fine for a standalone scope scanned on its
-	// own (e.g. in tests) with no surrounding anchor at all.
-	IgnoreOffset string
 }
 
 // Registry accumulates targets discovered across one or more scopes.
@@ -149,13 +142,13 @@ func (r *Registry) AddScope(opts Options) error {
 		}
 
 		if d.IsDir() {
-			if p != "." && (d.Name() == ".git" || isExcluded(p, excluded) || isIgnored(opts.Ignore, opts.IgnoreOffset, p, true)) {
+			if p != "." && (d.Name() == ".git" || isExcluded(p, excluded) || isIgnored(opts.Ignore, p, true)) {
 				return fs.SkipDir
 			}
 			return nil
 		}
 
-		if isExcluded(p, excluded) || isIgnored(opts.Ignore, opts.IgnoreOffset, p, false) {
+		if isExcluded(p, excluded) || isIgnored(opts.Ignore, p, false) {
 			return nil
 		}
 		if d.Name() == ".docsweb.yaml" || !isProbablySource(d.Name()) {
@@ -213,12 +206,9 @@ func isExcluded(p string, excluded []string) bool {
 	return false
 }
 
-func isIgnored(m *ignore.Matcher, offset, p string, isDir bool) bool {
+func isIgnored(m *ignore.Matcher, p string, isDir bool) bool {
 	if m == nil {
 		return false
-	}
-	if offset != "" {
-		p = path.Join(offset, p)
 	}
 	return m.Match(p, isDir)
 }

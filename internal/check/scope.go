@@ -55,6 +55,12 @@ func checkScopes(ctx *context) error {
 	// scopeFS collects every scope's own file system, keyed by scope name,
 	// ready to hand to collect.AddScope.
 	scopeFS := map[string]fs.FS{cfg.Name: rootFS}
+	// ownIgnore carries, for every referenced scope (local or remote), the
+	// ignore matcher compiled from that scope's own .docsweb.yaml "ignore:"
+	// list. A referenced scope is walked with only this matcher - the root
+	// config's ignore: rules describe the root scope's own tree and are
+	// never applied to a referenced scope, local or remote.
+	ownIgnore := map[string]*ignore.Matcher{}
 	// excludes keeps the root scope's own walk from descending into any
 	// referenced scope's directory - a local scope's own path, or (once,
 	// regardless of how many remote scopes exist) the whole cache
@@ -110,16 +116,13 @@ func checkScopes(ctx *context) error {
 		if refCfg.Name != name {
 			return fmt.Errorf("scope %q: %s declares name %q, expected %q", name, configLoc, refCfg.Name, name)
 		}
+		ownIgnore[name] = ignore.Compile(refCfg.Ignore)
 	}
 	if err := reg.AddScope(collect.Options{Scope: cfg.Name, Root: rootFS, Exclude: excludes, Ignore: matcher}); err != nil {
 		return err
 	}
 	for name := range cfg.Scopes {
-		opts := collect.Options{Scope: name, Root: scopeFS[name]}
-		if _, remote := remoteScopes[name]; !remote {
-			opts.Ignore = matcher
-			opts.IgnoreOffset = cfg.Scopes[name].Path
-		}
+		opts := collect.Options{Scope: name, Root: scopeFS[name], Ignore: ownIgnore[name]}
 		if err := reg.AddScope(opts); err != nil {
 			return err
 		}

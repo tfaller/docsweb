@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.9.0
+// @define check v0.10.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -19,21 +19,23 @@ package check
 // @uses annotation@v0.2.0
 // @uses auth@v0.1.0
 // @uses collect@v0.6.0
-// @uses config@v0.3.0
+// @uses config@v0.3.2
 // @uses ignore@v0.1.0
 // @uses mdlink@v0.2.0
 // @uses vcs@v0.7.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// **checkScopes** now resolves HTTP credentials for every remote (`git:`)
-// scope's URL via the new [auth](@link:auth@v0.1.0) package's
-// `auth.Default()` registry before calling
-// [vcs.OpenScope](@link:vcs@v0.7.0), so a private repository (today:
-// gitlab.com, authenticated with a GitLab CI job's own `CI_JOB_TOKEN`) can
-// be cloned/fetched the same way a public one always could. A URL no
-// registered provider recognizes - the common case - still clones/fetches
-// unauthenticated, exactly as before this change.
+// Fixed **checkScopes**: a local referenced scope's tree was filtered by
+// the *root* config's `ignore:` rules (re-anchored to the scope's own
+// subdirectory) instead of the referenced scope's own `.docsweb.yaml`
+// `ignore:` list, which was never applied at all - the reverse of a
+// remote (`git:`) scope, whose own `ignore:` list was also never applied
+// (only the root's, which doesn't even describe that repository). Every
+// referenced scope - local or remote - is now walked with only its own
+// `ignore:` rules; the root config's list is applied only to the root
+// scope's own tree, matching README.md's "Scopes" section, which already
+// documented this as the intended contract.
 // @doc
 // # Check
 //
@@ -56,8 +58,12 @@ package check
 //   no worktree checkout, authenticated via [auth](@link:auth@v0.1.0) when
 //   a registered provider recognizes the scope's URL), verifies every
 //   declared referenced scope's own config against the parent's `scope:`
-//   key (see [config](@link:config@v0.3.0)'s "Scopes" section), and walks
-//   every scope's file tree via [collect](@link:collect@v0.5.0).
+//   key (see [config](@link:config@v0.3.2)'s "Scopes" section), and walks
+//   every scope's file tree via [collect](@link:collect@v0.6.0). Each
+//   scope - root or referenced, local or remote - is walked with only its
+//   own `.docsweb.yaml`'s `ignore:` rules: the root config's list is never
+//   applied to a referenced scope's tree, and a referenced scope's own
+//   list is never applied outside of it.
 // - **audiences** - validates every target's (and changelog entry's)
 //   `@audience` names against the config's declared `audience:` map.
 // - **uses** - validates that every `@uses` lands on an existing target

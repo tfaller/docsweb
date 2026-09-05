@@ -1,24 +1,23 @@
 package build
 
 // @docsweb
-// @define build v0.15.0
+// @define build v0.16.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.9.0
+// @uses check@v0.10.0
 // @uses history@v0.4.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
 // @uses vcs@v0.7.0
 // @audience dev
 // @changelog
-// No behavior change to `build` itself - `@uses` references bumped to
-// [check](@link:check@v0.9.0)'s, [history](@link:history@v0.4.0)'s, and
-// [vcs](@link:vcs@v0.7.0)'s current versions, following `check`'s new
-// credential-aware remote-scope cloning (see the new
-// [auth](@link:auth@v0.1.0) package).
+// No behavior change to `build` itself - `@uses` reference bumped to
+// [check](@link:check@v0.10.0)'s current version, following a fix to
+// `checkScopes`: a referenced scope (local or remote) is now walked with
+// only its own `.docsweb.yaml` `ignore:` rules, never the root config's.
 // @doc
 // # Build
 //
