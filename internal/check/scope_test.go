@@ -95,6 +95,36 @@ func TestCheckScopesRemoteScopeAppliesOwnIgnoreRules(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// TestCheckScopesExposesRemoteScopeOwnIgnoreList confirms RemoteScope.Ignore
+// carries the remote scope's own .docsweb.yaml "ignore:" list - the same
+// raw list checkScopes already compiles into ownIgnore for that scope's
+// live collection - needed by internal/build to re-apply those same rules
+// when it later walks this scope's own repository history.
+func TestCheckScopesExposesRemoteScopeOwnIgnoreList(t *testing.T) {
+	remoteDir := t.TempDir()
+	initGitScope(t, remoteDir, "upstream", "widget")
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, ".docsweb.yaml"), []byte("name: upstream\nignore:\n    - /excluded.go\n"), 0o644))
+	repo, err := git.PlainOpen(remoteDir)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add(".")
+	require.NoError(t, err)
+	author := object.Signature{Name: "Alice", Email: "alice@example.com", When: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	_, err = wt.Commit("declare ignore rule", &git.CommitOptions{Author: &author})
+	require.NoError(t, err)
+
+	rootDir := t.TempDir()
+	cfgPath := writeRootConfig(t, rootDir, "name: root\nscope:\n    upstream:\n        git: "+remoteDir+"\n        path: .\n")
+
+	result, err := Run(Options{ConfigPath: cfgPath})
+	require.NoError(t, err)
+
+	rs, ok := result.RemoteScopes["upstream"]
+	require.True(t, ok)
+	assert.Equal(t, []string{"/excluded.go"}, rs.Ignore)
+}
+
 func TestCheckScopesLocalScopeAppliesOwnIgnoreRules(t *testing.T) {
 	rootDir := t.TempDir()
 	scopeDir := filepath.Join(rootDir, "sub")

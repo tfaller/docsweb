@@ -1,16 +1,18 @@
-// Package history walks a local git repository's first-parent commit log to
+// Package history walks a git repository's first-parent commit log to
 // discover past versions of the targets a docsweb build collects from its
 // working tree today - so a static site can link back to what a target's
 // documentation looked like at an older version, not just its current one.
 package history
 
 // @docsweb
-// @define history v0.4.0
+// @define history v0.5.0
 // @name History
 // @summary
 // Walks a repository's first-parent commit log backward from its pinned
-// commit, reconstructing every past version of every target defined in the
-// root scope or a local (path-based) referenced scope.
+// commit, reconstructing every past version of every target defined inside
+// it - the root scope (plus any local referenced scope nested under it)
+// when given the root's own repository, or a remote scope's own directory
+// when given that scope's own separately cloned repository.
 // @uses collect@v0.6.0
 // @uses config@v0.3.0
 // @uses ignore@v0.1.0
@@ -18,11 +20,21 @@ package history
 // @uses vcs@v0.7.0
 // @audience dev
 // @changelog
-// No behavioral change here - `@uses` reference bumped to
-// [vcs](@link:vcs@v0.7.0)'s current version, which gained a purely
-// additive `OpenScope` parameter (credentials for cloning a private remote
-// scope - see [auth](@link:auth@v0.1.0)) that `history` itself never
-// calls.
+// `Walk` no longer refuses a repository with no on-disk root: the guard
+// that made it an immediate no-op for one opened via
+// [vcs.OpenScope](@link:vcs@v0.7.0) - previously the only way a remote
+// (`git:`) scope's own repository is ever opened - is gone, since nothing
+// else in `Walk` ever depended on `Repository.Root()`. It was a scoping
+// decision (see PLAN.md assumption 21(b)), not a technical necessity:
+// every lookup `Walk` performs (`Repository.PinnedCommit`/`FileContents`,
+// `vcs.WalkFirstParent`/`DiffStep`) already worked identically for a bare
+// mirror with no worktree. [build](@link:build@v0.17.0) now calls `Walk`
+// once per remote scope's own repository too, alongside the root's, so a
+// target defined in a remote scope gets its own real version history
+// discovered from that repository's own commit log - exactly like a local
+// scope's target already did - instead of being stuck with a single-entry,
+// current-only `Versions` list just because its home repository happens to
+// be a separate clone.
 // @doc
 // # History
 //
@@ -55,14 +67,20 @@ package history
 //     structure (see PLAN.md assumption 16), and that name is assumed
 //     constant through history.
 //
-// Only the root scope's own directory and local (`path:`-based) referenced
-// scopes are covered - a remote (`git:`) scope is a separate repository with
-// its own separate history, pinned at one `ref` exactly as a live build
-// already does; walking it in lockstep with the root's is a different,
-// larger problem left for later. `Walk` returns immediately (no error) if
-// repo has no on-disk root (i.e. it was opened via
-// [vcs.OpenScope](@link:vcs@v0.5.0), not [vcs.Open](@link:vcs@v0.5.0)) - a
-// remote scope's own repository is exactly this case.
+// `Walk` only ever covers one repository per call: repo itself, and
+// whatever scope(s) live inside it - the root scope's own directory plus
+// any local (`path:`-based) referenced scope nested under it, when called
+// with the root scope's own repository, or a remote (`git:`) scope's own
+// directory alone, when called with that scope's own separately cloned
+// repository (opened via [vcs.OpenScope](@link:vcs@v0.7.0), which has no
+// on-disk root - `Repository.Root()` returns `""` - but is otherwise
+// walked identically, since `Walk` never calls `Root()` itself). A caller
+// with several repositories to cover - the root's, plus one per declared
+// remote scope - calls `Walk` once per repository and merges the results
+// by [model.Target.Key](@link:model@v0.3.0), exactly as
+// [build](@link:build@v0.17.0) does: each repository's history is walked
+// entirely independently, with no attempt to correlate commits *across*
+// repositories.
 //
 // The walk stops (without error) once an ancestor commit's root config can
 // no longer be safely used: the file didn't exist yet (the commit that
@@ -114,15 +132,14 @@ type Version struct {
 
 // Walk walks repo's first-parent commit history backward from its pinned
 // commit, discovering every past version of every target defined in the
-// root scope (whose config is at rootConfigRel, a repository-tree-relative,
+// scope whose config is at rootConfigRel (a repository-tree-relative,
 // slash-separated path, already parsed as rootCfg - its current, live
-// content) or a local referenced scope it declares. See the package doc for
+// content) or a local referenced scope it declares. repo need not have an
+// on-disk root - a remote scope's own repository (opened via
+// vcs.OpenScope) works exactly the same way. See the package doc for
 // exactly what makes a commit worth acting on, and what is deliberately out
-// of scope (remote scopes, nested scope discovery).
+// of scope (nested scope discovery, correlating commits across repositories).
 func Walk(repo *vcs.Repository, rootConfigRel string, rootCfg *config.Config) (map[string][]Version, error) {
-	if repo.Root() == "" {
-		return nil, nil
-	}
 	start := repo.PinnedCommit()
 	if start == nil {
 		return nil, nil

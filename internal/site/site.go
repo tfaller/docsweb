@@ -4,22 +4,22 @@
 package site
 
 // @docsweb
-// @define site v0.10.0
+// @define site v0.11.0
 // @name Site
 // @summary
 // Renders a build.Result into a static HTML site: one page per target
 // version (current and past), one dedicated outdated-uses page, and an
 // index page linking everything together.
-// @uses build@v0.16.0
+// @uses build@v0.17.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
 // No behavior change to `site` itself - `@uses` reference bumped to
-// [build](@link:build@v0.16.0)'s current version, itself just a `@uses`
-// bump following a fix to `check`'s `checkScopes`: a referenced scope
-// (local or remote) is now walked with only its own `.docsweb.yaml`
-// `ignore:` rules, never the root config's - no behavior change in
-// `site` or `build` themselves.
+// [build](@link:build@v0.17.0)'s current version, which now discovers
+// historic versions for a remote scope's targets too, not just the root
+// scope's - no behavior change in `site` itself, since it already renders
+// whatever `RenderedTarget.History`/`Versions` it's handed the same way
+// regardless of which scope a version came from.
 // @doc
 // # Site
 //

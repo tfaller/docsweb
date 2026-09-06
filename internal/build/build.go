@@ -1,23 +1,37 @@
 package build
 
 // @docsweb
-// @define build v0.16.0
+// @define build v0.17.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
 // target's past versions, then render every version's Markdown to HTML and
 // attribute it to a git blame author.
-// @uses check@v0.10.0
-// @uses history@v0.4.0
+// @uses check@v0.11.0
+// @uses config@v0.3.2
+// @uses history@v0.5.0
 // @uses mdlink@v0.2.0
 // @uses model@v0.3.0
 // @uses vcs@v0.7.0
 // @audience dev
 // @changelog
-// No behavior change to `build` itself - `@uses` reference bumped to
-// [check](@link:check@v0.10.0)'s current version, following a fix to
-// `checkScopes`: a referenced scope (local or remote) is now walked with
-// only its own `.docsweb.yaml` `ignore:` rules, never the root config's.
+// `Run` now discovers historic versions for a remote (`git:`) scope's
+// targets too, not just the root scope's: alongside the existing
+// `history.Walk` call against the root scope's own repository, it now also
+// calls `history.Walk` once per declared remote scope, against that scope's
+// own separately cloned `Result.RemoteScopes` repository (a minimal
+// `config.Config{Name, Ignore}` built from `RemoteScope.Ignore`, new in
+// [check](@link:check@v0.11.0), stands in for that scope's own
+// `.docsweb.yaml` the same way `chk.Config` already does for the root's).
+// This relies on [history](@link:history@v0.5.0) no longer refusing a
+// repository with no on-disk root - previously the only way a remote
+// scope's repository is ever opened, so it always short-circuited to no
+// history at all. `renderHistoricVersion`'s git-blame attribution now reads
+// each historic version's own repository off its `versionEntry` (a new
+// `repo` field, set per `addHistoricVersions` call) instead of always
+// blaming against the root scope's repository - the root's history walk and
+// each remote scope's own are otherwise entirely independent, never
+// correlated against one another.
 // @doc
 // # Build
 //
@@ -37,10 +51,11 @@ package build
 //    scope's repository - a remote scope's own resolved commit, when it is
 //    one (see `Result.RemoteScopes`).
 // 3. [history.Walk](@link:history@v0.1.0) discovers every past version of
-//    every target defined in the root scope's own git history (best-effort;
-//    see the changelog above), building a `versionsByKey` index - every
-//    known version of every target, current first - shared by every
-//    resolver and every page rendered below.
+//    every target defined in the root scope's own git history, and (a
+//    separate call per scope) every remote scope's own git history too
+//    (best-effort; see the changelog above), building a `versionsByKey`
+//    index - every known version of every target, current first - shared by
+//    every resolver and every page rendered below.
 // 4. Render every version's Markdown pieces to HTML via
 //    [mdlink](@link:mdlink@v0.2.0#resolver) (strictly for the current
 //    version, leniently for a historic one via `renderHistoricVersion`),
@@ -64,6 +79,7 @@ import (
 	"time"
 
 	"github.com/tfaller/docsweb/internal/check"
+	"github.com/tfaller/docsweb/internal/config"
 	"github.com/tfaller/docsweb/internal/history"
 	"github.com/tfaller/docsweb/internal/mdlink"
 	"github.com/tfaller/docsweb/internal/model"
@@ -242,25 +258,31 @@ func Run(opts Options) (*Result, error) {
 	// internal/history discovers. Discovery is best-effort, same spirit as
 	// blame attribution: outside of a git repository (or any other VCS
 	// error), every target simply has no history, never a build failure.
-	// Only the root scope's own repository is walked - a remote scope has
-	// its own separate history and is out of scope for internal/history
-	// (see its package doc), so its targets only ever get a single-entry
-	// (current-only) version list.
+	// The root scope's own repository is walked, and so is every declared
+	// remote scope's own separately cloned repository - each independently,
+	// via its own history.Walk call (see internal/history's package doc) -
+	// so a remote-scope target gets its own real Versions/History too, not
+	// just a single-entry (current-only) list.
 	versionsByKey := map[string][]versionEntry{}
 	for _, t := range chk.Registry.Targets() {
 		versionsByKey[t.Key()] = []versionEntry{{target: t, anchors: chk.Anchors[t.Key()], url: TargetURL(t.Ref())}}
 	}
 
-	var rootRepo *vcs.Repository
 	if rootDir, ok := chk.ScopeRoots[chk.Config.Name]; ok {
 		if repo := localRepo(rootDir); repo != nil {
-			rootRepo = repo
 			if relScope, err := repo.RelPath(rootDir); err == nil {
 				rootConfigRel := path.Join(relScope, filepath.Base(opts.ConfigPath))
 				if found, err := history.Walk(repo, rootConfigRel, chk.Config); err == nil {
-					addHistoricVersions(versionsByKey, found)
+					addHistoricVersions(versionsByKey, found, repo)
 				}
 			}
+		}
+	}
+	for name, rs := range chk.RemoteScopes {
+		remoteConfigRel := path.Join(rs.Path, ".docsweb.yaml")
+		remoteCfg := &config.Config{Name: name, Ignore: rs.Ignore}
+		if found, err := history.Walk(rs.Repo, remoteConfigRel, remoteCfg); err == nil {
+			addHistoricVersions(versionsByKey, found, rs.Repo)
 		}
 	}
 
@@ -323,7 +345,7 @@ func Run(opts Options) (*Result, error) {
 		}
 
 		for _, v := range versions[1:] {
-			rt.History = append(rt.History, renderHistoricVersion(rootRepo, v, versionsByKey))
+			rt.History = append(rt.History, renderHistoricVersion(v, versionsByKey))
 		}
 
 		rendered = append(rendered, rt)
@@ -347,15 +369,27 @@ type versionEntry struct {
 	// (repository-tree-relative, slash-separated - see history.Version.Path).
 	commit *vcs.Commit
 	path   string
+	// repo is the repository commit was found in - set alongside commit/path,
+	// for the same historic-entry-only reason. A target's historic versions
+	// can come from a different repository than another target's (a remote
+	// scope's own repository, rather than the root's), so this is carried
+	// per entry rather than assumed to be one shared repository - see
+	// renderHistoricVersion, which blames against it.
+	repo *vcs.Repository
 }
 
-// addHistoricVersions appends every version history.Walk found (other than
-// a target's current one, already versionsByKey's index 0) to its target's
-// entry, newest version first. history.Walk also rediscovers the current
-// version's own introducing commit (its own doc: "including the entry for
-// the target's current version") - captured onto the current entry itself
-// (cur[0]) rather than appended, since it's the same version, not a past one.
-func addHistoricVersions(versionsByKey map[string][]versionEntry, found map[string][]history.Version) {
+// addHistoricVersions appends every version history.Walk found against repo
+// (other than a target's current one, already versionsByKey's index 0) to
+// its target's entry, newest version first. history.Walk also rediscovers
+// the current version's own introducing commit (its own doc: "including the
+// entry for the target's current version") - captured onto the current
+// entry itself (cur[0]) rather than appended, since it's the same version,
+// not a past one. Called once per repository Run walks (the root scope's
+// own, plus one per declared remote scope) - repo says which one found's
+// entries came from, so a historic version discovered in a remote scope's
+// own repository is later blamed against that repository, not whichever one
+// happened to be walked first.
+func addHistoricVersions(versionsByKey map[string][]versionEntry, found map[string][]history.Version, repo *vcs.Repository) {
 	for key, hvs := range found {
 		cur, ok := versionsByKey[key]
 		if !ok {
@@ -376,6 +410,7 @@ func addHistoricVersions(versionsByKey map[string][]versionEntry, found map[stri
 				url:     HistoricTargetURL(hv.Target.Ref()),
 				commit:  hv.Commit,
 				path:    hv.Path,
+				repo:    repo,
 			})
 		}
 		sort.Slice(historic, func(i, j int) bool {
@@ -430,14 +465,15 @@ func commitMeta(c *vcs.Commit) (hash string, when time.Time) {
 // renderHistoricVersion attributes and renders one past version's Markdown,
 // leniently (see mdlink.RenderDocLenient): a broken @link/@uses/anchor in
 // old content degrades to plain text instead of failing the build, since a
-// past commit can't be fixed after the fact. rootRepo is nil when no git
-// repository backs the root scope, in which case v.commit is also always
-// nil (history.Walk never runs) and Author is simply left empty.
-func renderHistoricVersion(rootRepo *vcs.Repository, v versionEntry, versionsByKey map[string][]versionEntry) HistoricVersion {
+// past commit can't be fixed after the fact. v.repo is nil when no git
+// repository backed the scope this version was discovered in, in which case
+// v.commit is also always nil (history.Walk never ran against it) and
+// Author is simply left empty.
+func renderHistoricVersion(v versionEntry, versionsByKey map[string][]versionEntry) HistoricVersion {
 	hv := HistoricVersion{Target: v.target, Uses: resolveUses(v.target.Uses, versionsByKey, v.url)}
 	hv.CommitHash, hv.CommitTime = commitMeta(v.commit)
-	if rootRepo != nil && v.commit != nil {
-		hv.Author = blameAuthorAt(rootRepo, v.commit, v.path, v.target)
+	if v.repo != nil && v.commit != nil {
+		hv.Author = blameAuthorAt(v.repo, v.commit, v.path, v.target)
 	}
 
 	resolver := &versionResolver{versionsByKey: versionsByKey, fromURL: v.url}

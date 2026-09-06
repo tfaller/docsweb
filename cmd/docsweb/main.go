@@ -6,22 +6,23 @@
 package main
 
 // @docsweb
-// @define docsweb v0.12.0
+// @define docsweb v0.13.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
 // and builds a cross-linked static HTML site from them.
-// @uses build@v0.16.0
-// @uses check@v0.10.0
-// @uses site@v0.10.0
+// @uses build@v0.17.0
+// @uses check@v0.11.0
+// @uses site@v0.11.0
 // @audience dev, user
 // @changelog
 // No behavior change to this CLI itself - `@uses` references bumped to
-// [build](@link:build@v0.16.0)'s, [check](@link:check@v0.10.0)'s, and
-// [site](@link:site@v0.10.0)'s current versions, following a fix to
-// `checkScopes`: a referenced scope (local or remote) is now walked with
-// only its own `.docsweb.yaml` `ignore:` rules, never the root config's.
+// [build](@link:build@v0.17.0)'s, [check](@link:check@v0.11.0)'s, and
+// [site](@link:site@v0.11.0)'s current versions: a remote (`git:`) scope's
+// targets now get their own real historic `Versions` too, discovered from
+// that scope's own separately cloned repository, the same way a local
+// scope's targets already did.
 // @doc
 // # docsweb
 //

@@ -264,7 +264,10 @@ func TestWalkStopsAtCommitWithNoRootConfig(t *testing.T) {
 	assert.Equal(t, "v1.0.0", found["root.app"][0].Target.Version.String())
 }
 
-func TestWalkNoOnDiskRootReturnsNil(t *testing.T) {
+// TestWalkNilPinnedCommitReturnsNil confirms Walk is a no-op (not a panic
+// or error) against a Repository with no pinned commit at all - the
+// zero-value case, which PinnedCommit reports as nil.
+func TestWalkNilPinnedCommitReturnsNil(t *testing.T) {
 	repo := newTestRepo(t)
 	repo.write(".docsweb.yaml", "name: root\n")
 	repo.write("app.go", docBlockFor("app", "v1.0.0", "App"))
@@ -274,6 +277,40 @@ func TestWalkNoOnDiskRootReturnsNil(t *testing.T) {
 	found, err := Walk(&vcs.Repository{}, configPath, cfg)
 	require.NoError(t, err)
 	assert.Nil(t, found)
+}
+
+// TestWalkWorksAgainstARepositoryWithNoOnDiskRoot is the regression test for
+// the fix this covers: Walk used to refuse outright (returning nil, nil
+// immediately) against any Repository with no on-disk root - the only way
+// vcs.OpenScope ever returns one, since a remote (git:) scope's bare mirror
+// has no worktree checked out at all. Walk never actually needed Root() for
+// anything, so a Repository opened this way is now walked exactly like one
+// opened via vcs.Open, discovering the same real multi-commit history.
+func TestWalkWorksAgainstARepositoryWithNoOnDiskRoot(t *testing.T) {
+	repo := newTestRepo(t)
+	repo.write(".docsweb.yaml", "name: lib\n")
+	repo.write("app.go", docBlockFor("app", "v1.0.0", "App"))
+	repo.commit("v1.0.0")
+	repo.write("app.go", docBlockFor("app", "v1.1.0", "App"))
+	repo.commit("v1.1.0")
+
+	_, remoteRepo, err := vcs.OpenScope(t.TempDir(), repo.dir, "")
+	require.NoError(t, err)
+	require.Equal(t, "", remoteRepo.Root())
+
+	cfg, err := config.Parse([]byte("name: lib\n"))
+	require.NoError(t, err)
+
+	found, err := Walk(remoteRepo, ".docsweb.yaml", cfg)
+	require.NoError(t, err)
+
+	versions := found["lib.app"]
+	require.Len(t, versions, 2)
+	got := map[string]bool{}
+	for _, v := range versions {
+		got[v.Target.Version.String()] = true
+	}
+	assert.Equal(t, map[string]bool{"v1.0.0": true, "v1.1.0": true}, got)
 }
 
 func docBlockFor(name, version, display string) string {

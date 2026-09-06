@@ -7,7 +7,7 @@
 package check
 
 // @docsweb
-// @define check v0.10.0
+// @define check v0.11.0
 // @name Check
 // @summary
 // Runs every validation a docsweb pipeline needs - scope collection
@@ -26,16 +26,16 @@ package check
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Fixed **checkScopes**: a local referenced scope's tree was filtered by
-// the *root* config's `ignore:` rules (re-anchored to the scope's own
-// subdirectory) instead of the referenced scope's own `.docsweb.yaml`
-// `ignore:` list, which was never applied at all - the reverse of a
-// remote (`git:`) scope, whose own `ignore:` list was also never applied
-// (only the root's, which doesn't even describe that repository). Every
-// referenced scope - local or remote - is now walked with only its own
-// `ignore:` rules; the root config's list is applied only to the root
-// scope's own tree, matching README.md's "Scopes" section, which already
-// documented this as the intended contract.
+// `RemoteScope` gained a new `Ignore` field, carrying the remote scope's own
+// `.docsweb.yaml` `ignore:` list alongside its already-resolved `Repo`/`Path`
+// - `checkScopes` already compiled this same list into `ownIgnore` for the
+// scope's own live collection, but never exposed the raw list itself to a
+// caller. Needed by [build](@link:build@v0.17.0), which now walks a remote
+// scope's own repository history via [history](@link:history@v0.5.0), same
+// as it already did for the root scope - and that walk needs the same
+// `ignore:` rules applied at every past commit, not just today's tree,
+// exactly for the reason `ownIgnore` itself exists (see the changelog entry
+// above).
 // @doc
 // # Check
 //
@@ -124,6 +124,13 @@ type Options struct {
 type RemoteScope struct {
 	Repo *vcs.Repository
 	Path string
+	// Ignore is this scope's own .docsweb.yaml "ignore:" list (see
+	// config.Config.Ignore) - the same rules checkScopes already compiles
+	// into this scope's own OwnIgnore matcher for its live collection.
+	// Carried here too so internal/history can walk this scope's own
+	// repository history with the same exclusions applied at every commit,
+	// not just to its current tree.
+	Ignore []string
 }
 
 // Result is everything a caller needs once every check has passed: the

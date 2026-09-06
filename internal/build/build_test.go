@@ -174,6 +174,68 @@ func TestRunFullIntegrationWithRemoteScope(t *testing.T) {
 	assert.Equal(t, model.DiffMinor, result.Issues[0].Kind)
 }
 
+// TestRunDiscoversHistoricVersionsInRemoteScope proves a remote (git:)
+// scope's own targets get real historic Versions/History too, discovered
+// from that scope's own separately cloned repository - not just a
+// single-entry, current-only list, which is all a remote-scope target ever
+// got before history.Walk was taught to accept a repository with no on-disk
+// root (the only way vcs.OpenScope, used to open every remote scope, ever
+// returns one).
+func TestRunDiscoversHistoricVersionsInRemoteScope(t *testing.T) {
+	remoteDir := t.TempDir()
+	repo, err := git.PlainInit(remoteDir, false)
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	writeHelper := func(version string) {
+		src := "package lib\n\n/*\n    @docsweb\n    @define helper " + version + "\n    @doc\n    Helper docs.\n    @docsweb\n*/\n\nfunc Helper() {}\n"
+		require.NoError(t, os.WriteFile(filepath.Join(remoteDir, "helper.go"), []byte(src), 0o644))
+	}
+	commit := func(msg string, when time.Time) {
+		_, err := wt.Add(".")
+		require.NoError(t, err)
+		sig := object.Signature{Name: "Bob", Email: "bob@example.com", When: when}
+		_, err = wt.Commit(msg, &git.CommitOptions{Author: &sig})
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, os.WriteFile(filepath.Join(remoteDir, ".docsweb.yaml"), []byte("name: lib\n"), 0o644))
+	writeHelper("v1.0.0")
+	commit("v1.0.0", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	writeHelper("v1.1.0")
+	commit("v1.1.0", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+
+	rootDir := t.TempDir()
+	rootCfg := "name: integration\nscope:\n    lib:\n        git: " + remoteDir + "\n        path: .\n"
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, ".docsweb.yaml"), []byte(rootCfg), 0o644))
+
+	result, err := Run(Options{ConfigPath: filepath.Join(rootDir, ".docsweb.yaml")})
+	require.NoError(t, err)
+
+	var helper *RenderedTarget
+	for i := range result.Targets {
+		if result.Targets[i].Target.Key() == "lib.helper" {
+			helper = &result.Targets[i]
+		}
+	}
+	require.NotNil(t, helper)
+
+	require.Len(t, helper.History, 1, "helper's v1.0.0 should be discovered from the remote scope's own history")
+	assert.Equal(t, "v1.0.0", helper.History[0].Target.Version.String())
+	// Blamed from the remote repo's own commit history, proving
+	// renderHistoricVersion attributes against the historic version's own
+	// versionEntry.repo rather than always the root scope's repository (the
+	// root scope here has no git repository behind it at all).
+	assert.Equal(t, "Bob <bob@example.com>", helper.History[0].Author)
+
+	require.Len(t, helper.Versions, 2)
+	assert.True(t, helper.Versions[0].Current)
+	assert.Equal(t, "v1.1.0", helper.Versions[0].Version.String())
+	assert.Equal(t, "v1.0.0", helper.Versions[1].Version.String())
+	assert.Equal(t, "lib/helper/v1.0.0.html", helper.Versions[1].URL)
+}
+
 func TestRunRemapsScopeAudiences(t *testing.T) {
 	result, err := Run(Options{ConfigPath: "testdata/audience/.docsweb.yaml"})
 	require.NoError(t, err)

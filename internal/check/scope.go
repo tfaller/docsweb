@@ -80,6 +80,7 @@ func checkScopes(ctx *context) error {
 		var (
 			sFS       fs.FS
 			configLoc string
+			repo      *vcs.Repository
 		)
 
 		if sc.Remote() {
@@ -87,10 +88,11 @@ func checkScopes(ctx *context) error {
 			if err != nil {
 				return fmt.Errorf("scope %q: resolving credentials for %s: %w", name, sc.Git, err)
 			}
-			treeFS, repo, err := vcs.OpenScope(cacheDir, sc.Git, sc.Ref, clientOpts...)
+			treeFS, r, err := vcs.OpenScope(cacheDir, sc.Git, sc.Ref, clientOpts...)
 			if err != nil {
 				return fmt.Errorf("scope %q: %w", name, err)
 			}
+			repo = r
 			sFS = treeFS
 			if sc.Path != "" {
 				sFS, err = fs.Sub(sFS, sc.Path)
@@ -98,7 +100,6 @@ func checkScopes(ctx *context) error {
 					return fmt.Errorf("scope %q: %w", name, err)
 				}
 			}
-			remoteScopes[name] = RemoteScope{Repo: repo, Path: sc.Path}
 			configLoc = fmt.Sprintf("%s@%s:%s", sc.Git, sc.Ref, path.Join(sc.Path, ".docsweb.yaml"))
 		} else {
 			scopeRoot := filepath.Join(rootDir, sc.Path)
@@ -117,6 +118,9 @@ func checkScopes(ctx *context) error {
 			return fmt.Errorf("scope %q: %s declares name %q, expected %q", name, configLoc, refCfg.Name, name)
 		}
 		ownIgnore[name] = ignore.Compile(refCfg.Ignore)
+		if sc.Remote() {
+			remoteScopes[name] = RemoteScope{Repo: repo, Path: sc.Path, Ignore: refCfg.Ignore}
+		}
 	}
 	if err := reg.AddScope(collect.Options{Scope: cfg.Name, Root: rootFS, Exclude: excludes, Ignore: matcher}); err != nil {
 		return err
