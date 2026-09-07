@@ -1,28 +1,28 @@
 // Command docsweb is the docsweb POC's CLI. "build" runs a full build:
 // collect targets, validate & classify @uses references, resolve
-// @anchor:/@link: destinations, and render the static HTML site. "check"
-// runs the same validation without rendering anything, for local
-// development and CI pipelines.
+// @anchor:/@link: destinations, and render the static site (HTML pages
+// plus their JSON data API counterpart). "check" runs the same validation
+// without rendering anything, for local development and CI pipelines.
 package main
 
 // @docsweb
-// @define docsweb v0.13.0
+// @define docsweb v0.14.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
 // docsweb reads @docsweb annotation blocks out of source-code comments
-// and builds a cross-linked static HTML site from them.
-// @uses build@v0.17.0
+// and builds a cross-linked static site from them.
+// @uses build@v0.18.0
 // @uses check@v0.11.0
-// @uses site@v0.11.0
+// @uses site@v0.12.0
 // @audience dev, user
 // @changelog
-// No behavior change to this CLI itself - `@uses` references bumped to
-// [build](@link:build@v0.17.0)'s, [check](@link:check@v0.11.0)'s, and
-// [site](@link:site@v0.11.0)'s current versions: a remote (`git:`) scope's
-// targets now get their own real historic `Versions` too, discovered from
-// that scope's own separately cloned repository, the same way a local
-// scope's targets already did.
+// `docsweb build` now also writes a parallel JSON data API alongside the
+// HTML site on every run, with no new flag - see
+// [site](@link:site@v0.12.0)'s own changelog for the file layout.
+// `@uses` references bumped to [build](@link:build@v0.18.0)'s and
+// [site](@link:site@v0.12.0)'s current versions accordingly;
+// [check](@link:check@v0.11.0)'s is unchanged.
 // @doc
 // # docsweb
 //
@@ -44,7 +44,8 @@ package main
 // [config](@link:config@v0.3.0)); its directory is the root scope's file
 // tree, and that config's own required, self-declared `name:` names the
 // root scope itself - there is no unscoped default. `--out` is the output
-// directory for the generated site (default: `dist`).
+// directory for the generated site (default: `dist`), which holds both the
+// HTML pages and their [JSON data API](@link:site@v0.12.0) counterpart.
 //
 // ## Checking without building
 //

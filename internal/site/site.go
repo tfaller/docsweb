@@ -1,29 +1,45 @@
-// Package site renders a build.Result into a static HTML site: one page per
-// target, one dedicated "outdated uses" page, and an index page linking
-// everything together.
+// Package site renders a build.Result into a static site: one HTML page
+// (plus a parallel JSON file) per target, one dedicated "outdated uses"
+// page, an index page linking everything together, and a date-indexed
+// changelog feed.
 package site
 
 // @docsweb
-// @define site v0.11.0
+// @define site v0.12.0
 // @name Site
 // @summary
-// Renders a build.Result into a static HTML site: one page per target
-// version (current and past), one dedicated outdated-uses page, and an
-// index page linking everything together.
-// @uses build@v0.17.0
+// Renders a build.Result into a static site: one HTML page (plus a
+// parallel JSON file) per target version, one dedicated outdated-uses page,
+// an index page linking everything together, and a date-indexed changelog
+// feed.
+// @uses build@v0.18.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// No behavior change to `site` itself - `@uses` reference bumped to
-// [build](@link:build@v0.17.0)'s current version, which now discovers
-// historic versions for a remote scope's targets too, not just the root
-// scope's - no behavior change in `site` itself, since it already renders
-// whatever `RenderedTarget.History`/`Versions` it's handed the same way
-// regardless of which scope a version came from.
+// `Generate` now writes a parallel JSON data API alongside the existing
+// HTML site, on every build, with no opt-out - see `json.go`. Every HTML
+// page gets a same-named `.json` sibling (`Target`, `IndexPage`,
+// `OutdatedPage`); a target additionally gets a `versions.json`
+// (`VersionLink`) listing every known version, since the JSON tree has no
+// per-page version-switcher list to browse instead. A new
+// `changelog/<YYYY-MM>.json` feed (`ChangelogShard`), sharded by month and
+// indexed by `changelog/index.json` (`ChangelogIndex`, a sparse
+// `{year: {month: [day, ...]}}` map with bare, non-zero-padded month/day
+// keys), lists every version introduced on a given day - something no HTML
+// page surfaced before. A cross-reference to another target (`UseLink`,
+// `ChangelogVersion`) deliberately omits a resolved URL: only that target's
+// own `versions.json` can tell a current-version page's bare URL apart from
+// a historic one's, so a client looks it up there instead of it being
+// duplicated at every reference site. `@uses` reference bumped to
+// [build](@link:build@v0.18.0)'s current version, which now exposes each
+// version's introducing commit as a full (40-hex-digit) `CommitHash`
+// instead of a truncated display form - the JSON API's `commitHash` fields
+// use it as-is, while HTML rendering derives its own short display form
+// from it.
 // @doc
 // # Site
 //
-// `Generate` writes three kinds of page under an output directory, all
+// `Generate` writes three kinds of HTML page under an output directory, all
 // sharing one `html/template` page shell:
 //
 // - **A target page** per known version of every collected target - its
@@ -50,6 +66,34 @@ package site
 // except for the pre-rendered pieces that already came out of
 // [build](@link:build@v0.1.0) as trusted HTML (`SummaryHTML`, `DocHTML`,
 // changelog HTML) - those are inserted verbatim via `template.HTML`.
+//
+// ## JSON data API
+//
+// Alongside every HTML page above, `Generate` writes a same-shaped JSON
+// file - one JSON value per fetch, sized for a client to load only the
+// piece it needs rather than a single monolithic document:
+//
+// - Every target page's JSON sibling (`Target`) mirrors that page's data,
+//   plus both the raw Markdown and the rendered HTML for its
+//   summary/doc/changelog, so a client can diff or search the source text
+//   without stripping HTML back out of it.
+// - **`<target>/versions.json`** (`VersionLink`) lists every version of
+//   that target, current and historic - the JSON tree's stand-in for the
+//   HTML version-switcher list, since there's no single page to embed one
+//   in.
+// - **`index.json`** (`IndexPage`) and **`_outdated.json`**
+//   (`OutdatedPage`) mirror `index.html`/`_outdated.html`.
+// - **`changelog/<YYYY-MM>.json`** (`ChangelogShard`) lists every version
+//   introduced that month, grouped by day, and **`changelog/index.json`**
+//   (`ChangelogIndex`) sparsely maps which year/month/day combinations
+//   actually have an entry, so a client knows what to fetch without
+//   probing every month.
+//
+// A reference to another target (`UseLink`, `ChangelogVersion`)
+// deliberately carries no resolved URL: only that target's own
+// `versions.json` can tell a current-version page's bare URL apart from a
+// historic one's, so a client looks it up there rather than it being
+// duplicated at every reference site.
 //
 // `Generate` never deletes anything it doesn't itself write, so pointing
 // it at a directory that already has unrelated content in it is safe,
@@ -104,11 +148,23 @@ func Generate(result *build.Result, outDir string) error {
 		if err := writeTargetPage(outDir, &result.Targets[i]); err != nil {
 			return err
 		}
+		if err := writeTargetJSON(outDir, &result.Targets[i]); err != nil {
+			return err
+		}
 	}
 	if err := writeOutdatedPage(outDir, result, byKey); err != nil {
 		return err
 	}
+	if err := writeOutdatedJSON(outDir, result, byKey); err != nil {
+		return err
+	}
 	if err := writeIndexPage(outDir, result); err != nil {
+		return err
+	}
+	if err := writeIndexJSON(outDir, result); err != nil {
+		return err
+	}
+	if err := writeChangelogJSON(outDir, result); err != nil {
 		return err
 	}
 	return nil
@@ -154,9 +210,9 @@ type targetPageData struct {
 	// CommitHash and CommitTime describe this page's own version's
 	// introducing commit - short hash and formatted committer timestamp, or
 	// "" for both if unknown (see build.RenderedTarget.CommitHash).
-	CommitHash string
-	CommitTime string
-	HasSummary bool
+	CommitHash  string
+	CommitTime  string
+	HasSummary  bool
 	SummaryHTML template.HTML
 	DocHTML     template.HTML
 	Uses        []useRef
@@ -211,7 +267,7 @@ func buildTargetPageData(
 		Version:     t.Version.String(),
 		Audiences:   audienceLabel(t.Audiences),
 		Author:      author,
-		CommitHash:  commitHash,
+		CommitHash:  shortHash(commitHash),
 		CommitTime:  commitTimeLabel(commitTime),
 		DocHTML:     template.HTML(docHTML), //nolint:gosec // pre-rendered, trusted HTML from internal/build
 		IsHistoric:  historic,
@@ -246,7 +302,7 @@ func buildTargetPageData(
 		if v.Current {
 			label += " (current)"
 		}
-		row := versionRow{Label: label, CommitHash: v.CommitHash, CommitTime: commitTimeLabel(v.CommitTime)}
+		row := versionRow{Label: label, CommitHash: shortHash(v.CommitHash), CommitTime: commitTimeLabel(v.CommitTime)}
 		if v.URL == pageURL {
 			row.Self = true
 		} else {
@@ -402,6 +458,16 @@ func commitTimeLabel(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format("2006-01-02 15:04 UTC")
+}
+
+// shortHash renders build.RenderedTarget.CommitHash's full (40-hex-digit)
+// hash in the short, display-friendly form HTML pages show, or "" if it's
+// unknown.
+func shortHash(full string) string {
+	if len(full) > 7 {
+		return full[:7]
+	}
+	return full
 }
 
 func joinAudiences(auds []model.Audience) string {

@@ -54,9 +54,9 @@ func TestRunAttributesVersionToItsGitBlameAuthor(t *testing.T) {
 	require.Len(t, result.Targets, 1)
 	require.Equal(t, "Alice <alice@example.com>", result.Targets[0].Author)
 	// The version's introducing commit is the same one history.Walk finds
-	// via its added-@define-line detection - its short hash and committer
+	// via its added-@define-line detection - its full hash and committer
 	// timestamp (defaulted to the author's, since none was set explicitly).
-	assert.Len(t, result.Targets[0].CommitHash, 7)
+	assert.Len(t, result.Targets[0].CommitHash, 40)
 	assert.WithinDuration(t, alice.When, result.Targets[0].CommitTime, time.Second)
 	require.Len(t, result.Targets[0].Versions, 1)
 	assert.Equal(t, result.Targets[0].CommitHash, result.Targets[0].Versions[0].CommitHash)

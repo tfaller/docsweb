@@ -111,7 +111,7 @@ func TestRunDiscoversAndRendersHistoricVersions(t *testing.T) {
 	// Current version (v1.1.0, the 3rd commit) and its historic v1.0.0 (the
 	// 1st commit) are each attributed to their own distinct introducing
 	// commit - not to the same (e.g. HEAD's) commit.
-	assert.Len(t, app.CommitHash, 7)
+	assert.Len(t, app.CommitHash, 40)
 	assert.NotEqual(t, app.CommitHash, app.History[0].CommitHash)
 	assert.Equal(t, app.CommitHash, app.Versions[0].CommitHash)
 	assert.Equal(t, app.History[0].CommitHash, app.Versions[1].CommitHash)

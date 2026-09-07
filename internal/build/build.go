@@ -1,7 +1,7 @@
 package build
 
 // @docsweb
-// @define build v0.17.0
+// @define build v0.18.0
 // @name Build
 // @summary
 // Orchestrates a full docsweb build: run every check, discover every
@@ -15,24 +15,56 @@ package build
 // @uses vcs@v0.7.0
 // @audience dev
 // @changelog
-// `Run` now discovers historic versions for a remote (`git:`) scope's
-// targets too, not just the root scope's: alongside the existing
-// `history.Walk` call against the root scope's own repository, it now also
-// calls `history.Walk` once per declared remote scope, against that scope's
-// own separately cloned `Result.RemoteScopes` repository (a minimal
-// `config.Config{Name, Ignore}` built from `RemoteScope.Ignore`, new in
-// [check](@link:check@v0.11.0), stands in for that scope's own
-// `.docsweb.yaml` the same way `chk.Config` already does for the root's).
-// This relies on [history](@link:history@v0.5.0) no longer refusing a
-// repository with no on-disk root - previously the only way a remote
-// scope's repository is ever opened, so it always short-circuited to no
-// history at all. `renderHistoricVersion`'s git-blame attribution now reads
-// each historic version's own repository off its `versionEntry` (a new
-// `repo` field, set per `addHistoricVersions` call) instead of always
-// blaming against the root scope's repository - the root's history walk and
-// each remote scope's own are otherwise entirely independent, never
-// correlated against one another.
+// `RenderedTarget`, `VersionLink` and `HistoricVersion`'s `CommitHash` now
+// carries the introducing commit's full (40-hex-digit) hash, not a
+// truncated 7-hex-digit display form - a consumer that wants the short form
+// derives it itself (`CommitHash[:7]`), which is what
+// [site](@link:site@v0.11.0)'s HTML rendering now does. The full hash gives
+// a consumer that needs an unambiguous reference - such as site's new JSON
+// data API - one without having to back-derive it from a truncated form.
 // @doc
+// # Build
+//
+// `Run` is the whole pipeline in one call:
+//
+// 1. [check.RunForBuild](@link:check@v0.1.0) does everything needed to
+//    confirm every target is in shape to render correctly: load
+//    `.docsweb.yaml`, open/fetch and walk the root scope plus every
+//    declared referenced scope (local or remote), validate `@audience`
+//    names, validate `@uses` references (classifying each by
+//    [DiffKind](@link:model@v0.1.0#diffkind) into an [outdated use](@anchor:outdated)),
+//    collect every target's anchors, and validate every `@link`
+//    reference resolves - all without rendering a single piece of
+//    Markdown to HTML.
+// 2. Git-blame attribution (best-effort, see `blameAuthorAt`) looks up who
+//    last touched each target's `@define` line, against that target's own
+//    scope's repository - a remote scope's own resolved commit, when it is
+//    one (see `Result.RemoteScopes`).
+// 3. [history.Walk](@link:history@v0.1.0) discovers every past version of
+//    every target defined in the root scope's own git history, and (a
+//    separate call per scope) every remote scope's own git history too
+//    (best-effort; see the changelog above), building a `versionsByKey`
+//    index - every known version of every target, current first - shared by
+//    every resolver and every page rendered below.
+// 4. Render every version's Markdown pieces to HTML via
+//    [mdlink](@link:mdlink@v0.2.0#resolver) (strictly for the current
+//    version, leniently for a historic one via `renderHistoricVersion`),
+//    backed by a `versionResolver` over `versionsByKey`.
+//
+// Every version discovered - current or historic - carries its own
+// introducing commit's full hash and committer timestamp (best-effort:
+// empty/zero outside of a git repository, or when that commit couldn't be
+// found), for a downstream consumer that needs to attribute or date a
+// specific version, such as [site](@link:site@v0.11.0)'s changelog feed.
+//
+// `TargetURL` is the current-version URL scheme every downstream consumer
+// (currently just the static site generator) uses to turn a `TargetRef`
+// into a page path: dot-joined scope segments become path segments, so
+// scope `"a.b"`, name `"c"` becomes `a/b/c.html`, and the root scope's `"c"`
+// becomes just `c.html`. A non-current version discovered via
+// `history.Walk` instead gets a page at `HistoricTargetURL`, nested under
+// its target's own directory (e.g. `a/b/c/v1.0.0.html`).
+// @docsweb
 // # Build
 //
 // `Run` is the whole pipeline in one call:
@@ -119,7 +151,7 @@ type RenderedTarget struct {
 	// matched in the committed blob. Best-effort informational metadata,
 	// never a hard build requirement.
 	Author string
-	// CommitHash is the short (7-hex-digit) hash of the commit that
+	// CommitHash is the full (40-hex-digit) hash of the commit that
 	// introduced this version - the same commit BlameAuthor-style attribution
 	// walks back to, per internal/history's added-@define-line detection.
 	// "" under the same best-effort conditions as Author.
@@ -152,7 +184,7 @@ type VersionLink struct {
 	URL     string
 	Current bool
 	// CommitHash and CommitTime are this version's own introducing commit's
-	// short hash and committer timestamp - see RenderedTarget.CommitHash for
+	// full hash and committer timestamp - see RenderedTarget.CommitHash for
 	// what an empty/zero value means.
 	CommitHash string
 	CommitTime time.Time
@@ -180,7 +212,7 @@ type HistoricVersion struct {
 	// what "" means.
 	Author string
 	// CommitHash and CommitTime are this version's own introducing commit's
-	// short hash and committer timestamp - see RenderedTarget.CommitHash for
+	// full hash and committer timestamp - see RenderedTarget.CommitHash for
 	// what an empty/zero value means.
 	CommitHash string
 	CommitTime time.Time
@@ -451,7 +483,7 @@ func versionLinks(entries []versionEntry) []VersionLink {
 	return links
 }
 
-// commitMeta returns c's short (7-hex-digit) hash and committer timestamp,
+// commitMeta returns c's full (40-hex-digit) hash and committer timestamp,
 // or ("", zero time) if c is nil - the commit that introduced a version
 // couldn't be found (outside a git repository, a remote scope, or any other
 // best-effort condition RenderedTarget.CommitHash documents).
@@ -459,7 +491,7 @@ func commitMeta(c *vcs.Commit) (hash string, when time.Time) {
 	if c == nil {
 		return "", time.Time{}
 	}
-	return c.Hash.String()[:7], c.Committer.When
+	return c.Hash.String(), c.Committer.When
 }
 
 // renderHistoricVersion attributes and renders one past version's Markdown,
