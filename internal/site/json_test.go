@@ -69,6 +69,54 @@ func TestGenerate_TargetJSON(t *testing.T) {
 	assert.Equal(t, "Added a new helper function.", lib2.Changelog[0].Body)
 }
 
+// TestGenerate_CurrentVersionAlsoAtVersionSpecificPath confirms the current
+// version's data is written a second time at its own version-specific path
+// (the same address scheme HistoricTargetURL gives a past version) -
+// identical content, still Historic: false - so a client can address any
+// version, current or historic alike, purely from scope+name+version with
+// no separate lookup (e.g. versions.json) needed to tell them apart first.
+func TestGenerate_CurrentVersionAlsoAtVersionSpecificPath(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	bare := readJSON[site.Target](t, filepath.Join(outDir, "app.json"))
+	versioned := readJSON[site.Target](t, filepath.Join(outDir, "app", "v1.0.0.json"))
+	assert.Equal(t, bare, versioned)
+	assert.False(t, versioned.Historic)
+
+	helperBare := readJSON[site.Target](t, filepath.Join(outDir, "libs", "util", "helper.json"))
+	helperVersioned := readJSON[site.Target](t, filepath.Join(outDir, "libs", "util", "helper", "v2.0.0.json"))
+	assert.Equal(t, helperBare, helperVersioned)
+}
+
+// TestGenerate_JSONPSiblings confirms every JSON file also gets a plain,
+// executable "<url>.js" sibling calling the global docsweb_jsonp(url, data)
+// callback with its own url and exactly the same data - what the changelog
+// tab's client-side script loads instead of fetch()/XHR, since those are
+// blocked outright when a generated site is opened directly off disk
+// (file://) rather than through an HTTP server.
+func TestGenerate_JSONPSiblings(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	for _, relURL := range []string{"app.json", "index.json", "changelog/index.json"} {
+		plain, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(relURL)))
+		require.NoError(t, err)
+
+		jsonp, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(relURL)+".js"))
+		require.NoError(t, err, "expected a JSONP sibling for %s", relURL)
+
+		urlLit, err := json.Marshal(relURL)
+		require.NoError(t, err)
+		want := "docsweb_jsonp(" + string(urlLit) + "," + string(plain) + ");\n"
+		assert.Equal(t, want, string(jsonp), "JSONP sibling of %s", relURL)
+	}
+}
+
 func TestGenerate_HistoricVersionJSON(t *testing.T) {
 	target := &model.Target{Scope: "", Name: "app", Version: v("v2.0.0"), DisplayName: "Application"}
 	oldTarget := &model.Target{Scope: "", Name: "app", Version: v("v1.0.0"), DisplayName: "Application"}
@@ -115,6 +163,13 @@ func TestGenerate_HistoricVersionJSON(t *testing.T) {
 	require.NotNil(t, current.CommitTime)
 	assert.True(t, currentCommitTime.Equal(*current.CommitTime))
 	assert.Equal(t, "app/versions.json", current.VersionsURL)
+
+	// The current version is also written a second time at its own
+	// version-specific path, identical to app.json - distinct from the
+	// real historic file at app/v1.0.0.json below, since the versions
+	// differ.
+	currentVersioned := readJSON[site.Target](t, filepath.Join(outDir, "app", "v2.0.0.json"))
+	assert.Equal(t, current, currentVersioned)
 
 	old := readJSON[site.Target](t, filepath.Join(outDir, "app", "v1.0.0.json"))
 	assert.True(t, old.Historic)
@@ -271,15 +326,67 @@ func TestGenerate_ChangelogJSON(t *testing.T) {
 	require.Len(t, sept.Days, 2)
 	assert.Equal(t, "2026-09-01", sept.Days[0].Date)
 	require.Len(t, sept.Days[0].Versions, 1)
-	assert.Equal(t, site.ChangelogVersion{Scope: "", Name: "app", Version: "v1.0.0", CommitHash: oldFull}, sept.Days[0].Versions[0])
+	// v1.0.0's preceding known version is v0.1.0 (major 0 -> 1): "major".
+	assert.Equal(t, site.ChangelogVersion{Scope: "", Name: "app", Version: "v1.0.0", CommitHash: oldFull, Kind: "major"}, sept.Days[0].Versions[0])
 	assert.Equal(t, "2026-09-05", sept.Days[1].Date)
 	assert.Equal(t, "app", sept.Days[1].Versions[0].Name)
 	assert.Equal(t, appFull, sept.Days[1].Versions[0].CommitHash)
+	// v2.0.0's preceding known version is v1.0.0 (major 1 -> 2): "major".
+	assert.Equal(t, "major", sept.Days[1].Versions[0].Kind)
 
 	june := readJSON[site.ChangelogShard](t, filepath.Join(outDir, "changelog", "2026-06.json"))
 	require.Len(t, june.Days, 1)
 	assert.Equal(t, "2026-06-03", june.Days[0].Date)
-	assert.Equal(t, site.ChangelogVersion{Scope: "libs.util", Name: "helper", Version: "v1.1.0", CommitHash: helperFull}, june.Days[0].Versions[0])
+	// helper's only known version - nothing preceding it - defaults to "major".
+	assert.Equal(t, site.ChangelogVersion{Scope: "libs.util", Name: "helper", Version: "v1.1.0", CommitHash: helperFull, Kind: "major"}, june.Days[0].Versions[0])
+}
+
+// TestGenerate_ChangelogJSON_Kind exercises every DiffKind classification
+// (major, minor, patch) plus the no-preceding-version default, against a
+// single target's own version chain.
+func TestGenerate_ChangelogJSON_Kind(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	t4 := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	target := &model.Target{Scope: "", Name: "app", Version: v("v2.0.0")}
+
+	result := &build.Result{
+		Targets: []build.RenderedTarget{
+			{
+				Target:     target,
+				CommitHash: "aaaa",
+				CommitTime: t4,
+				// Current-first, historic newest-first - the same order
+				// build.versionLinks produces.
+				Versions: []build.VersionLink{
+					{Version: v("v2.0.0"), URL: "app.html", Current: true, CommitHash: "aaaa", CommitTime: t4},
+					{Version: v("v1.1.1"), URL: "app/v1.1.1.html", CommitHash: "bbbb", CommitTime: t3},
+					{Version: v("v1.1.0"), URL: "app/v1.1.0.html", CommitHash: "cccc", CommitTime: t2},
+					{Version: v("v1.0.0"), URL: "app/v1.0.0.html", CommitHash: "dddd", CommitTime: t1},
+				},
+			},
+		},
+	}
+
+	outDir := t.TempDir()
+	require.NoError(t, site.Generate(result, outDir))
+
+	byVersion := map[string]string{}
+	for _, month := range []string{"2026-01", "2026-02", "2026-03", "2026-04"} {
+		shard := readJSON[site.ChangelogShard](t, filepath.Join(outDir, "changelog", month+".json"))
+		for _, day := range shard.Days {
+			for _, ver := range day.Versions {
+				byVersion[ver.Version] = ver.Kind
+			}
+		}
+	}
+
+	assert.Equal(t, "major", byVersion["v1.0.0"], "initial known version defaults to major")
+	assert.Equal(t, "minor", byVersion["v1.1.0"], "v1.0.0 -> v1.1.0 is a minor bump")
+	assert.Equal(t, "patch", byVersion["v1.1.1"], "v1.1.0 -> v1.1.1 is a patch bump")
+	assert.Equal(t, "major", byVersion["v2.0.0"], "v1.1.1 -> v2.0.0 is a major bump")
 }
 
 // TestGenerate_ChangelogJSON_NoCommitTimes confirms an empty changelog

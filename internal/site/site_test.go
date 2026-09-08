@@ -321,6 +321,37 @@ func TestGenerate_IndexPage(t *testing.T) {
 	assert.Contains(t, index, `href="_outdated.html"`)
 }
 
+// TestGenerate_ChangelogPage confirms the "Changelog" tab is written as its
+// own static page and linked from every other page's shared nav bar, at the
+// right relative depth.
+func TestGenerate_ChangelogPage(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	page := readFile(t, filepath.Join(outDir, "changelog.html"))
+	assert.Contains(t, page, "<h1>Changelog</h1>")
+	// The client-side app fetches these JSON endpoints lazily - assert the
+	// literal request paths are present rather than depending on any
+	// particular JS structure.
+	assert.Contains(t, page, "changelog/index.json")
+	assert.Contains(t, page, "changelog/")
+	// Loaded via a <script src> (JSONP) tag, never fetch()/XHR - those are
+	// blocked outright when the site is opened via file:// instead of an
+	// HTTP server (see writeJSONPFile in json.go).
+	assert.NotContains(t, page, "fetch(")
+	assert.Contains(t, page, "docsweb_jsonp")
+
+	// Nav link present, at the correct relative depth, on the root-level
+	// index page and on a nested target page alike.
+	index := readFile(t, filepath.Join(outDir, "index.html"))
+	assert.Contains(t, index, `href="changelog.html"`)
+
+	nested := readFile(t, filepath.Join(outDir, "libs", "util", "helper.html"))
+	assert.Contains(t, nested, `href="../../changelog.html"`)
+}
+
 func TestGenerate_NestedScopeDirectoryStructure(t *testing.T) {
 	result := buildResult()
 	outDir := t.TempDir()

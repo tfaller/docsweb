@@ -6,7 +6,7 @@
 package main
 
 // @docsweb
-// @define docsweb v0.14.0
+// @define docsweb v0.18.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
@@ -14,15 +14,16 @@ package main
 // and builds a cross-linked static site from them.
 // @uses build@v0.18.0
 // @uses check@v0.11.0
-// @uses site@v0.12.0
+// @uses site@v0.16.0
 // @audience dev, user
 // @changelog
-// `docsweb build` now also writes a parallel JSON data API alongside the
-// HTML site on every run, with no new flag - see
-// [site](@link:site@v0.12.0)'s own changelog for the file layout.
-// `@uses` references bumped to [build](@link:build@v0.18.0)'s and
-// [site](@link:site@v0.12.0)'s current versions accordingly;
-// [check](@link:check@v0.11.0)'s is unchanged.
+// The generated site now has a real, interactive "Changelog" nav tab, and
+// `--out`'s directory works when opened directly in a browser (`file://`),
+// not just served over HTTP - see [site](@link:site@v0.16.0)'s own
+// changelog for both. `@uses` reference bumped to
+// [site](@link:site@v0.16.0)'s current version accordingly;
+// [build](@link:build@v0.18.0)'s and [check](@link:check@v0.11.0)'s are
+// unchanged.
 // @doc
 // # docsweb
 //
@@ -45,7 +46,7 @@ package main
 // tree, and that config's own required, self-declared `name:` names the
 // root scope itself - there is no unscoped default. `--out` is the output
 // directory for the generated site (default: `dist`), which holds both the
-// HTML pages and their [JSON data API](@link:site@v0.12.0) counterpart.
+// HTML pages and their [JSON data API](@link:site@v0.16.0) counterpart.
 //
 // ## Checking without building
 //

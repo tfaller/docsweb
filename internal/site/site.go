@@ -1,46 +1,51 @@
 // Package site renders a build.Result into a static site: one HTML page
 // (plus a parallel JSON file) per target, one dedicated "outdated uses"
-// page, an index page linking everything together, and a date-indexed
-// changelog feed.
+// page, an index page linking everything together, and a dynamic,
+// client-rendered changelog tab backed by the date-indexed changelog feed.
 package site
 
 // @docsweb
-// @define site v0.12.0
+// @define site v0.16.0
 // @name Site
 // @summary
 // Renders a build.Result into a static site: one HTML page (plus a
 // parallel JSON file) per target version, one dedicated outdated-uses page,
-// an index page linking everything together, and a date-indexed changelog
-// feed.
+// an index page linking everything together, and a dynamic "Changelog" tab.
 // @uses build@v0.18.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// `Generate` now writes a parallel JSON data API alongside the existing
-// HTML site, on every build, with no opt-out - see `json.go`. Every HTML
-// page gets a same-named `.json` sibling (`Target`, `IndexPage`,
-// `OutdatedPage`); a target additionally gets a `versions.json`
-// (`VersionLink`) listing every known version, since the JSON tree has no
-// per-page version-switcher list to browse instead. A new
-// `changelog/<YYYY-MM>.json` feed (`ChangelogShard`), sharded by month and
-// indexed by `changelog/index.json` (`ChangelogIndex`, a sparse
-// `{year: {month: [day, ...]}}` map with bare, non-zero-padded month/day
-// keys), lists every version introduced on a given day - something no HTML
-// page surfaced before. A cross-reference to another target (`UseLink`,
-// `ChangelogVersion`) deliberately omits a resolved URL: only that target's
-// own `versions.json` can tell a current-version page's bare URL apart from
-// a historic one's, so a client looks it up there instead of it being
-// duplicated at every reference site. `@uses` reference bumped to
-// [build](@link:build@v0.18.0)'s current version, which now exposes each
-// version's introducing commit as a full (40-hex-digit) `CommitHash`
-// instead of a truncated display form - the JSON API's `commitHash` fields
-// use it as-is, while HTML rendering derives its own short display form
-// from it.
+// A new "Changelog" tab (`changelog.html`, linked from every page's shared
+// nav bar) renders the date-indexed changelog feed as an interactive,
+// client-side page instead of leaving it as JSON-only data: a date range,
+// a major/minor+/patch+ change-level threshold, and a scope filter, with
+// whole-days-only pagination (loads until at least 100 changes are
+// visible, a "Load more" button beyond that) - see `changelogTmpl` in
+// `templates.go`. It loads everything lazily and, since opening a
+// generated site directly off disk (`file://`) is a normal way to browse
+// it and browsers block `fetch`/`XHR` outright there ("CORS request not
+// http" - confirmed by actually driving the rendered site in a browser
+// under both `file://` and a real HTTP server, not just by reading the
+// code), it loads every JSON file via a classic JSONP `<script src>`
+// instead: `writeJSONFile` now writes every JSON file's data a second
+// time as an executable `"<url>.js"` sibling calling a fixed global
+// `docsweb_jsonp(url, data)` (`writeJSONPFile`) - the plain `.json` files
+// are unchanged, still the documented external API.
+//
+// `ChangelogVersion` (`json.go`) gained `Kind` ("major"/"minor"/"patch",
+// via `model.Diff` against the immediately preceding known version) so the
+// change-level filter needs no extra fetch. Every version's own JSON file
+// - `<target>/vX.Y.Z.json` - now also exists for the *current* version,
+// not just historic ones (identical content to `<target>.json`): every
+// version, current or historic alike, is addressable purely from
+// scope+name+version, so the changelog tab (or any other client) never
+// needs a separate lookup (e.g. `versions.json`) just to tell them apart.
 // @doc
 // # Site
 //
 // `Generate` writes three kinds of HTML page under an output directory, all
-// sharing one `html/template` page shell:
+// sharing one `html/template` page shell, plus one dynamic app page (the
+// changelog tab, see below):
 //
 // - **A target page** per known version of every collected target - its
 //   current version at [build.TargetURL](@link:build@v0.1.0)'s path, plus
@@ -61,6 +66,22 @@ package site
 //   though `internal/history` now has the raw data such a range could be
 //   built from (left for later).
 // - **An index page** (`index.html`), grouping every target by scope.
+//
+// Every static page shares the nav bar's "Changelog" link, which opens
+// **the changelog tab** (`changelog.html`) - the one page whose content
+// isn't pre-rendered by `Generate` at all, only its own static shell.
+// Everything it shows comes from an inline script loading the JSON data
+// API described below, at the time a reader opens it: `changelog/index.
+// json`, then only the month shards a chosen (or default) date range
+// needs, then only the individual target version JSON files for the
+// changelog entries actually rendered on screen. See `changelogTmpl` in
+// `templates.go` for the full client-side implementation - the date range,
+// change-level, and scope filters, and the whole-days-only "at least 100,
+// then load more on request" pagination rule. It loads that JSON via a
+// `<script src>` tag calling `docsweb_jsonp`, never `fetch`, so the tab
+// (and, by the same mechanism, any other consumer of the JSON API) works
+// identically whether the site is served over HTTP or opened straight off
+// disk as `file://` - see "JSON data API" below.
 //
 // Every page rendered gets an HTML template's default auto-escaping
 // except for the pre-rendered pieces that already came out of
@@ -84,16 +105,39 @@ package site
 // - **`index.json`** (`IndexPage`) and **`_outdated.json`**
 //   (`OutdatedPage`) mirror `index.html`/`_outdated.html`.
 // - **`changelog/<YYYY-MM>.json`** (`ChangelogShard`) lists every version
-//   introduced that month, grouped by day, and **`changelog/index.json`**
+//   introduced that month, grouped by day - each carrying a `Kind`
+//   ("major"/"minor"/"patch", against the immediately preceding known
+//   version) so a client can filter by change severity without fetching
+//   every entry's own target JSON, and its own `URL` (unlike every other
+//   cross-reference here, see below) - and **`changelog/index.json`**
 //   (`ChangelogIndex`) sparsely maps which year/month/day combinations
 //   actually have an entry, so a client knows what to fetch without
 //   probing every month.
 //
-// A reference to another target (`UseLink`, `ChangelogVersion`)
-// deliberately carries no resolved URL: only that target's own
-// `versions.json` can tell a current-version page's bare URL apart from a
-// historic one's, so a client looks it up there rather than it being
-// duplicated at every reference site.
+// A reference to another target read from *within* some other target's own
+// JSON (`UseLink`) deliberately carries no resolved URL: only that
+// referenced target's own `versions.json` can tell a current-version
+// page's bare URL apart from a historic one's, so a client already holding
+// that target's data looks it up there rather than it being duplicated (and
+// needing RelLink-style adjustment per referencing page) at every
+// reference site. `ChangelogVersion` is the one exception: since it's the
+// very first and only thing the changelog tab loads about that specific
+// version, and every root-relative URL already means the same thing from
+// wherever `changelog.html` (always the site root) fetched it, its own
+// `URL` is included directly - avoiding a second round trip per entry is
+// worth more here than the general "look it up once" rule. This is safe
+// because `changelog/<YYYY-MM>.json` is never reused across builds: it's
+// always fully regenerated from that build's own version list, so its URLs
+// always match that same build's actual file layout.
+//
+// Every JSON file above (`writeJSONFile`, `json.go`) gets a second,
+// executable `"<url>.js"` sibling calling a fixed global `docsweb_jsonp
+// (url, data)` function with its own root-relative url and exactly the
+// same data - a classic JSONP `<script src>` load, unaffected by the CORS
+// restriction that blocks `fetch`/`XHR` outright when a page is opened as
+// `file://` instead of served over HTTP. The changelog tab loads
+// everything this way; the plain `.json` files are unaffected and remain
+// the documented API for any other consumer.
 //
 // `Generate` never deletes anything it doesn't itself write, so pointing
 // it at a directory that already has unrelated content in it is safe,
@@ -120,8 +164,9 @@ import (
 // site-wide pages, in the same URL scheme build.TargetURL uses for target
 // pages.
 const (
-	outdatedURL = "_outdated.html"
-	indexURL    = "index.html"
+	outdatedURL  = "_outdated.html"
+	indexURL     = "index.html"
+	changelogURL = "changelog.html"
 )
 
 // Generate writes a complete static HTML site for result under outDir.
@@ -165,6 +210,9 @@ func Generate(result *build.Result, outDir string) error {
 		return err
 	}
 	if err := writeChangelogJSON(outDir, result); err != nil {
+		return err
+	}
+	if err := writeChangelogPage(outDir); err != nil {
 		return err
 	}
 	return nil
@@ -420,6 +468,18 @@ func writeIndexPage(outDir string, result *build.Result) error {
 	return renderPage(outDir, indexURL, "docsweb", indexTmpl, data)
 }
 
+// -- changelog page -------------------------------------------------------
+
+// writeChangelogPage writes the site-wide changelog tab: a static shell
+// around a client-side app that lazy-loads changelog/index.json,
+// changelog/<YYYY-MM>.json shards, and individual target version JSON files
+// (for changelog text + a link to the full version doc) directly out of the
+// JSON data API writeChangelogJSON/writeTargetJSON already produce - no
+// server-side data of its own to pass in, unlike every other page.
+func writeChangelogPage(outDir string) error {
+	return renderPage(outDir, changelogURL, "Changelog", changelogTmpl, nil)
+}
+
 // -- shared helpers -----------------------------------------------------
 
 func displayName(t *model.Target) string {
@@ -488,10 +548,11 @@ func renderPage(outDir, relURL, title string, tmpl *template.Template, data any)
 	}
 
 	sd := shellData{
-		Title:        title,
-		Body:         template.HTML(body.String()), //nolint:gosec // body built from our own templates
-		IndexLink:    build.RelLink(relURL, indexURL),
-		OutdatedLink: build.RelLink(relURL, outdatedURL),
+		Title:         title,
+		Body:          template.HTML(body.String()), //nolint:gosec // body built from our own templates
+		IndexLink:     build.RelLink(relURL, indexURL),
+		OutdatedLink:  build.RelLink(relURL, outdatedURL),
+		ChangelogLink: build.RelLink(relURL, changelogURL),
 	}
 	var page bytes.Buffer
 	if err := shellTmpl.ExecuteTemplate(&page, "shell", sd); err != nil {

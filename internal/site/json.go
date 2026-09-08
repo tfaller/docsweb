@@ -5,17 +5,24 @@ package site
 // one JSON file per HTML page it mirrors, plus a per-target versions.json
 // and a date-indexed changelog feed with no HTML equivalent:
 //
-//   - <target>.json / <target>/vX.Y.Z.json - mirror the current and
-//     historic target pages (build.TargetURL/HistoricTargetURL), same
-//     directory layout as their .html siblings. See Target.
+//   - <target>.json - mirrors the current target page (build.TargetURL).
+//     See Target.
+//   - <target>/vX.Y.Z.json - mirrors a past version's page
+//     (build.HistoricTargetURL) for every version internal/history
+//     discovered, *plus* one more for the current version itself
+//     (identical content to <target>.json) - so every version, current or
+//     historic alike, is addressable purely from scope+name+version, with
+//     no need to first discover whether a given version happens to be the
+//     current one. See Target and writeTargetJSON.
 //   - <target>/versions.json - every known version of that target (mirrors
-//     the version-switcher list every target page shows), so a client can
-//     discover/lazy-load historic versions without walking git history or
-//     guessing filenames. See VersionLink.
+//     the version-switcher list every target page shows), for a client
+//     that wants to discover/browse them all at once rather than address
+//     one directly. See VersionLink.
 //   - index.json / _outdated.json - mirror the two site-wide HTML pages.
 //     See IndexPage, OutdatedPage.
 //   - changelog/<YYYY-MM>.json - every version introduced that month,
-//     grouped by day. See ChangelogShard.
+//     grouped by day, each carrying its major/minor/patch Kind against the
+//     immediately preceding known version. See ChangelogShard.
 //   - changelog/index.json - which months/days have a changelog entry at
 //     all, as {year: {month: [day, ...]}} with month/day as bare integers
 //     (not zero-padded) - both compact and, since integer-like string keys
@@ -34,12 +41,15 @@ package site
 // ".json" - safe because the JSON tree mirrors the HTML tree file-for-file,
 // so a relative path that resolves correctly from an HTML page resolves
 // identically from its JSON sibling. A reference to another target (Uses,
-// ChangelogVersion) instead gives just its scope/name/version, deliberately
-// omitting a resolved URL: only that target's own versions.json can tell a
-// current-version page's bare URL apart from a historic one's, so the URL
-// is looked up there rather than duplicated at every reference site.
+// ChangelogVersion) instead gives just its scope/name/version and no
+// resolved URL at all: since <target>/vX.Y.Z.json now exists for every
+// version (see above), a client can always compute the right file itself -
+// there is no current-vs-historic ambiguity left to resolve via a separate
+// lookup (versions.json remains useful for browsing every version at once,
+// just no longer required to address one specific version).
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -153,6 +163,18 @@ func writeTargetJSON(outDir string, rt *build.RenderedTarget) error {
 
 	data := buildTargetJSON(t, rt.SummaryHTML, rt.DocHTML, rt.ChangelogHTML, rt.Author, rt.CommitHash, rt.CommitTime, rt.Uses, rt.UsedBy, htmlURL, versionsURL, false)
 	if err := writeJSONFile(outDir, jsonURL(htmlURL), data); err != nil {
+		return err
+	}
+
+	// Also write the current version's exact same data a second time, at
+	// its own version-specific path - the same address scheme
+	// HistoricTargetURL gives a past version. This makes every version's
+	// JSON file addressable purely from scope+name+version, with no need
+	// to first discover whether that version happens to be the current
+	// one - see ChangelogVersion (which relies on exactly this) in the
+	// package doc.
+	currentVersionedURL := jsonURL(build.HistoricTargetURL(t.Ref()))
+	if err := writeJSONFile(outDir, currentVersionedURL, data); err != nil {
 		return err
 	}
 
@@ -337,8 +359,7 @@ func writeIndexJSON(outDir string, result *build.Result) error {
 }
 
 // ChangelogVersion is one target version introduced on a given day, as
-// listed in a ChangelogDay - see the package doc for why it carries no
-// resolved URL.
+// listed in a ChangelogDay.
 type ChangelogVersion struct {
 	Scope   string `json:"scope"`
 	Name    string `json:"name"`
@@ -346,6 +367,15 @@ type ChangelogVersion struct {
 	// CommitHash is the full (40-hex-digit) hash of the commit that
 	// introduced this version, or "" if unknown.
 	CommitHash string `json:"commitHash,omitempty"`
+	// Kind classifies this version against the immediately preceding known
+	// version of the same target - "major", "minor", or "patch" (see
+	// model.Diff) - so a client can filter the feed by severity without
+	// fetching every entry's own target JSON just to compare version
+	// numbers. The very first known version of a target (nothing older to
+	// compare against, at least within what internal/history discovered)
+	// is classified "major", since a target's initial appearance is always
+	// a notable event.
+	Kind string `json:"kind"`
 }
 
 // ChangelogDay is every version introduced on one UTC calendar day.
@@ -366,6 +396,22 @@ type ChangelogIndex map[string]map[string][]int
 
 type shardKey struct{ year, month int }
 
+// diffKindLabel renders a model.DiffKind as the lowercase label the
+// changelog feed's Kind field uses. model.DiffNone is unreachable here (two
+// distinct entries in rt.Versions never carry equal versions) but maps to
+// "patch" rather than panicking or leaving Kind empty, should that ever
+// change.
+func diffKindLabel(k model.DiffKind) string {
+	switch k {
+	case model.DiffMajor:
+		return "major"
+	case model.DiffMinor:
+		return "minor"
+	default:
+		return "patch"
+	}
+}
+
 // writeChangelogJSON writes one changelog/<YYYY-MM>.json shard per month
 // that saw a version introduced, plus changelog/index.json - the sparse
 // ChangelogIndex of which shards/days actually have entries, so a client
@@ -382,13 +428,22 @@ func writeChangelogJSON(outDir string, result *build.Result) error {
 	for i := range result.Targets {
 		rt := &result.Targets[i]
 		t := rt.Target
-		for _, v := range rt.Versions {
+		for vi, v := range rt.Versions {
 			if v.CommitTime.IsZero() {
 				continue
 			}
 			ct := v.CommitTime.UTC()
 			sk := shardKey{ct.Year(), int(ct.Month())}
 			dateStr := ct.Format("2006-01-02")
+
+			// rt.Versions is current-first then historic newest-first (see
+			// build.versionLinks/addHistoricVersions), i.e. already sorted
+			// descending by version - so the entry right after this one is
+			// the immediately preceding version, if any is known.
+			kind := "major"
+			if vi+1 < len(rt.Versions) {
+				kind = diffKindLabel(model.Diff(rt.Versions[vi+1].Version, v.Version))
+			}
 
 			if shards[sk] == nil {
 				shards[sk] = map[string][]ChangelogVersion{}
@@ -398,6 +453,7 @@ func writeChangelogJSON(outDir string, result *build.Result) error {
 				Name:       t.Name,
 				Version:    v.Version.String(),
 				CommitHash: v.CommitHash,
+				Kind:       kind,
 			})
 
 			yearStr := strconv.Itoa(ct.Year())
@@ -468,6 +524,39 @@ func writeJSONFile(outDir, relURL string, v any) error {
 	}
 	if err := os.WriteFile(dest, b, 0o644); err != nil {
 		return fmt.Errorf("site: writing %s: %w", relURL, err)
+	}
+	if err := writeJSONPFile(dest+".js", relURL, b); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeJSONPFile writes relURL's data a second time, as a plain executable
+// "<relURL>.js" sibling calling the fixed global docsweb_jsonp(url, data)
+// function - so the changelog tab (see changelogTmpl in templates.go) can
+// load it from a file:// page. Opening a static site directly off disk
+// (no HTTP server) is a real, expected way to browse it, but fetch/XHR are
+// blocked outright under file:// ("CORS request not http"); a classic
+// <script src> element is not subject to that restriction (the same reason
+// JSONP existed before CORS did), which is why the changelog tab loads
+// every JSON file this way instead of via fetch, on both file:// and a real
+// HTTP server alike. relURL is passed back to the callback (marshaled
+// through encoding/json for correct JS-string-literal escaping) so the
+// loader can match a response to the request that asked for it regardless
+// of the order several concurrently-loading <script> tags finish in.
+func writeJSONPFile(dest, relURL string, data []byte) error {
+	urlLit, err := json.Marshal(relURL)
+	if err != nil {
+		return fmt.Errorf("site: marshaling %s: %w", relURL, err)
+	}
+	var jsonp bytes.Buffer
+	jsonp.WriteString("docsweb_jsonp(")
+	jsonp.Write(urlLit)
+	jsonp.WriteByte(',')
+	jsonp.Write(data)
+	jsonp.WriteString(");\n")
+	if err := os.WriteFile(dest, jsonp.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("site: writing %s: %w", dest, err)
 	}
 	return nil
 }
