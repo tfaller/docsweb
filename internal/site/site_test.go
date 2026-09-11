@@ -332,16 +332,23 @@ func TestGenerate_ChangelogPage(t *testing.T) {
 
 	page := readFile(t, filepath.Join(outDir, "changelog.html"))
 	assert.Contains(t, page, "<h1>Changelog</h1>")
-	// The client-side app fetches these JSON endpoints lazily - assert the
-	// literal request paths are present rather than depending on any
-	// particular JS structure.
-	assert.Contains(t, page, "changelog/index.json")
-	assert.Contains(t, page, "changelog/")
+	// The client-side app itself is a separate, precompiled bundle (see
+	// internal/site/assets.go), not an inline <script> - the shell just
+	// references it as a plain script, never as an ES module (those fail to
+	// load at all under file:// in Chromium browsers).
+	assert.Contains(t, page, `<script src="bundle.js"></script>`)
+
+	// The bundle fetches these JSON endpoints lazily - assert the literal
+	// request paths are present rather than depending on any particular JS
+	// structure.
+	script := readFile(t, filepath.Join(outDir, "bundle.js"))
+	assert.Contains(t, script, "changelog/index.json")
+	assert.Contains(t, script, "changelog/")
 	// Loaded via a <script src> (JSONP) tag, never fetch()/XHR - those are
 	// blocked outright when the site is opened via file:// instead of an
 	// HTTP server (see writeJSONPFile in json.go).
-	assert.NotContains(t, page, "fetch(")
-	assert.Contains(t, page, "docsweb_jsonp")
+	assert.NotContains(t, script, "fetch(")
+	assert.Contains(t, script, "docsweb_jsonp")
 
 	// Nav link present, at the correct relative depth, on the root-level
 	// index page and on a nested target page alike.

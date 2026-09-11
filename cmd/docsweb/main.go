@@ -6,7 +6,7 @@
 package main
 
 // @docsweb
-// @define docsweb v0.18.0
+// @define docsweb v0.19.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
@@ -14,16 +14,15 @@ package main
 // and builds a cross-linked static site from them.
 // @uses build@v0.18.0
 // @uses check@v0.11.0
-// @uses site@v0.16.0
+// @uses site@v0.17.0
 // @audience dev, user
 // @changelog
-// The generated site now has a real, interactive "Changelog" nav tab, and
-// `--out`'s directory works when opened directly in a browser (`file://`),
-// not just served over HTTP - see [site](@link:site@v0.16.0)'s own
-// changelog for both. `@uses` reference bumped to
-// [site](@link:site@v0.16.0)'s current version accordingly;
-// [build](@link:build@v0.18.0)'s and [check](@link:check@v0.11.0)'s are
-// unchanged.
+// The generated site's "Changelog" tab now loads its client-side app from
+// a separate `changelog.js`, compiled from TypeScript, instead of an inline
+// `<script>` block - see [site](@link:site@v0.17.0)'s own changelog.
+// `@uses` reference bumped to [site](@link:site@v0.17.0)'s current version
+// accordingly; [build](@link:build@v0.18.0)'s and [check](@link:check@v0.11.0)'s
+// are unchanged.
 // @doc
 // # docsweb
 //

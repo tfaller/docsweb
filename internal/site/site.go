@@ -5,7 +5,7 @@
 package site
 
 // @docsweb
-// @define site v0.16.0
+// @define site v0.17.0
 // @name Site
 // @summary
 // Renders a build.Result into a static site: one HTML page (plus a
@@ -15,31 +15,24 @@ package site
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// A new "Changelog" tab (`changelog.html`, linked from every page's shared
-// nav bar) renders the date-indexed changelog feed as an interactive,
-// client-side page instead of leaving it as JSON-only data: a date range,
-// a major/minor+/patch+ change-level threshold, and a scope filter, with
-// whole-days-only pagination (loads until at least 100 changes are
-// visible, a "Load more" button beyond that) - see `changelogTmpl` in
-// `templates.go`. It loads everything lazily and, since opening a
-// generated site directly off disk (`file://`) is a normal way to browse
-// it and browsers block `fetch`/`XHR` outright there ("CORS request not
-// http" - confirmed by actually driving the rendered site in a browser
-// under both `file://` and a real HTTP server, not just by reading the
-// code), it loads every JSON file via a classic JSONP `<script src>`
-// instead: `writeJSONFile` now writes every JSON file's data a second
-// time as an executable `"<url>.js"` sibling calling a fixed global
-// `docsweb_jsonp(url, data)` (`writeJSONPFile`) - the plain `.json` files
-// are unchanged, still the documented external API.
-//
-// `ChangelogVersion` (`json.go`) gained `Kind` ("major"/"minor"/"patch",
-// via `model.Diff` against the immediately preceding known version) so the
-// change-level filter needs no extra fetch. Every version's own JSON file
-// - `<target>/vX.Y.Z.json` - now also exists for the *current* version,
-// not just historic ones (identical content to `<target>.json`): every
-// version, current or historic alike, is addressable purely from
-// scope+name+version, so the changelog tab (or any other client) never
-// needs a separate lookup (e.g. `versions.json`) just to tell them apart.
+// The changelog tab's client-side app is no longer written inline into
+// `changelog.html` as a `<script>` block: its TypeScript source now lives in
+// the sibling `web/` npm package (`web/src/changelog.ts`, typed against the
+// JSON data API's actual shapes), bundled by rolldown (`web/package.json`'s
+// `build` script, `web/rolldown.config.mjs`) as a plain IIFE straight to
+// `internal/site/assets/bundle.js` - named for the *bundle*, not this one
+// entry, since more client-side code is expected to join it there (an ES
+// module output was tried first, but `<script type="module">` fails to
+// load at all under `file://` in Chromium browsers - a separate, stricter
+// restriction than the `fetch`/`XHR` one below - so IIFE it stays). That
+// compiled bundle is embedded into the `docsweb` binary via `go:embed`
+// (`assets.go`'s `bundleJS`) and written unmodified to `<outDir>/bundle.js`
+// by the new `writeBundleScript`, which `changelogTmpl` now references with
+// a plain `<script src="bundle.js">` - building or running `docsweb` itself
+// still needs no Node.js toolchain, only re-running the JS build after
+// editing anything under `web/src/`. The changelog tab's own logic
+// (filters, pagination, and its JSONP-over-`<script src>` JSON loading, see
+// below) is unchanged.
 // @doc
 // # Site
 //
@@ -69,19 +62,23 @@ package site
 //
 // Every static page shares the nav bar's "Changelog" link, which opens
 // **the changelog tab** (`changelog.html`) - the one page whose content
-// isn't pre-rendered by `Generate` at all, only its own static shell.
-// Everything it shows comes from an inline script loading the JSON data
-// API described below, at the time a reader opens it: `changelog/index.
-// json`, then only the month shards a chosen (or default) date range
-// needs, then only the individual target version JSON files for the
-// changelog entries actually rendered on screen. See `changelogTmpl` in
-// `templates.go` for the full client-side implementation - the date range,
+// isn't pre-rendered by `Generate` at all, only its own static shell plus a
+// shared `bundle.js` sibling (`writeBundleScript`, see `assets.go`), loaded
+// as a plain `<script src="bundle.js">` (deliberately not `<script
+// type="module">` - see `assets.go`). Everything it shows comes from that
+// script loading the JSON data API described below, at the time a reader
+// opens it: `changelog/index.json`, then only the month shards a chosen
+// (or default) date range needs, then only the individual target version
+// JSON files for the changelog entries actually rendered on screen. Its
+// TypeScript source (`web/src/changelog.ts`) and the date range,
 // change-level, and scope filters, and the whole-days-only "at least 100,
-// then load more on request" pagination rule. It loads that JSON via a
-// `<script src>` tag calling `docsweb_jsonp`, never `fetch`, so the tab
-// (and, by the same mechanism, any other consumer of the JSON API) works
-// identically whether the site is served over HTTP or opened straight off
-// disk as `file://` - see "JSON data API" below.
+// then load more on request" pagination rule, all still live there -
+// `changelogTmpl` in `templates.go` now only renders the static shell and
+// `<script src="bundle.js">`. It loads that JSON via a `<script src>` tag
+// calling `docsweb_jsonp`, never `fetch`, so the tab (and, by the same
+// mechanism, any other consumer of the JSON API) works identically whether
+// the site is served over HTTP or opened straight off disk as `file://` -
+// see "JSON data API" below.
 //
 // Every page rendered gets an HTML template's default auto-escaping
 // except for the pre-rendered pieces that already came out of
@@ -167,6 +164,7 @@ const (
 	outdatedURL  = "_outdated.html"
 	indexURL     = "index.html"
 	changelogURL = "changelog.html"
+	bundleURL    = "bundle.js"
 )
 
 // Generate writes a complete static HTML site for result under outDir.
@@ -213,6 +211,9 @@ func Generate(result *build.Result, outDir string) error {
 		return err
 	}
 	if err := writeChangelogPage(outDir); err != nil {
+		return err
+	}
+	if err := writeBundleScript(outDir); err != nil {
 		return err
 	}
 	return nil
@@ -478,6 +479,21 @@ func writeIndexPage(outDir string, result *build.Result) error {
 // server-side data of its own to pass in, unlike every other page.
 func writeChangelogPage(outDir string) error {
 	return renderPage(outDir, changelogURL, "Changelog", changelogTmpl, nil)
+}
+
+// writeBundleScript writes bundleJS (see assets.go) - the generated site's
+// client-side JS, precompiled from TypeScript as a plain IIFE - to
+// <outDir>/bundle.js, which changelogTmpl's shell references via a plain
+// <script src="bundle.js">.
+func writeBundleScript(outDir string) error {
+	dest := filepath.Join(outDir, filepath.FromSlash(bundleURL))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("site: creating directory for %s: %w", bundleURL, err)
+	}
+	if err := os.WriteFile(dest, bundleJS, 0o644); err != nil {
+		return fmt.Errorf("site: writing %s: %w", bundleURL, err)
+	}
+	return nil
 }
 
 // -- shared helpers -----------------------------------------------------

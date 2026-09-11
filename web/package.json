@@ -1,0 +1,14 @@
+{
+  "name": "@docsweb/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client-side scripts for docsweb's generated static site (the Changelog tab), compiled to a plain browser bundle consumed by internal/site.",
+  "scripts": {
+    "build": "rolldown -c rolldown.config.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "rolldown": "^1.2.8",
+    "typescript": "^5.7.3"
+  }
+}
