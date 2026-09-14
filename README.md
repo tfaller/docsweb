@@ -1,18 +1,16 @@
 <!--
     @docsweb
-    @define readme v1.1.0
+    @define readme v1.2.0
     @name README
     @summary
     Project overview, the full annotation grammar spec, and the
     configuration reference - dogfooded as a real docsweb target via the
     Markdown frontend described in its own "Markdown files" section below.
     @changelog
-    Documented private `git:` scopes: a central credential registry
-    (see the new `auth` package) resolves HTTP credentials for a scope's
-    URL, trying each registered provider in order - today, a GitLab CI
-    job's own `CI_JOB_TOKEN`, authenticating an `https://gitlab.com/...`
-    scope automatically when docsweb itself runs as a GitLab CI job. See
-    "Scopes" > "Private git: scopes" below.
+    Documented the generated site's new "Search" tab: `docsweb build`
+    now downloads a pinned, checksum-verified pagefind binary and runs it
+    against the output directory after every page is written, and
+    `--search=false` skips that step. See "Pipeline" below.
 -->
 
 # docsweb
@@ -155,6 +153,8 @@ During documentation rendering, it will check that all @link and @uses land at a
 Building the documentation requires reading every file anyway, so there is no separate collection phase before validation - targets are collected and their `@link`/`@uses` references resolved lazily against that same pass. Defining the same target twice within one scope is a hard error.
 
 For the POC, the output is one page per target, plus one dedicated page for outdated uses. That page links to both the referencing target and the target's new version, showing the old and the new version and the changelog entries in between.
+
+The generated site also has a "Search" tab, powered by [Pagefind](https://pagefind.app/): after every page is written, `docsweb build` downloads a checksum-verified pagefind binary (cached in `docsweb-cache` next to the root config, alongside any `git:` scope mirrors - see "Scopes" below) and runs it against the output directory, which crawls the just-written HTML and writes its own search index and search-UI assets alongside it. `--search=false` skips this - useful offline, or anywhere the pagefind binary can't be downloaded - and still produces every other page.
 
 `docsweb build` is the primary command to run a build. `docsweb check` runs the same validation - config/scope collection, `@audience`/`@uses`/`@anchor`/`@link` checks - without rendering anything, so it can be used as a fast local/CI gate before a real build. `docsweb check` also runs one check `docsweb build` doesn't: see "Version bump check" below.
 

@@ -5,20 +5,25 @@
 package pagefind
 
 // @docsweb
-// @define pagefind v0.1.0
+// @define pagefind v0.2.0
 // @name Pagefind loader
 // @summary
 // Downloads and sha256-verifies the pagefind release binary matching the
 // current OS/architecture into a cache directory, so a build never needs
-// pagefind preinstalled.
+// pagefind preinstalled, and shells out to it to build a site's search
+// index.
 // @audience dev
 // @changelog
-// Initial documentation.
+// Adds `Index(bin, siteDir)`, which shells out to an already-`Ensure`d
+// pagefind binary against a fully-written static site directory, so a
+// build can turn that binary path into an actual search index instead of
+// just holding onto it.
 // @doc
 // # Pagefind loader
 //
 // `pagefind` depends on no other docsweb package; it only wraps the
-// standard library's `net/http`, `archive/tar` and `compress/gzip`.
+// standard library's `net/http`, `archive/tar`, `compress/gzip` and
+// `os/exec`.
 //
 // `Ensure(cacheDir, opts)` makes sure a verified pagefind binary for the
 // current OS/architecture is present under `cacheDir`, downloading it first
@@ -42,6 +47,17 @@ package pagefind
 // for the same `cacheDir`/version/platform is a plain cache hit - no
 // network access, no re-verification - so a caller can call `Ensure` on
 // every build without worrying about paying the download cost twice.
+//
+// `Index(bin, siteDir)` runs `bin --site siteDir`, pagefind's own CLI for
+// crawling an already-fully-written static site and writing its search
+// index plus its own search-runtime JS/CSS under `siteDir/pagefind/`. It
+// must be called only after every HTML page a build wants searchable has
+// already been written to `siteDir` - pagefind discovers pages by walking
+// that directory itself, it is never told about individual files - and
+// before anything reads `siteDir/pagefind/` back (e.g. a generated
+// "Search" page referencing it). The subprocess's stdout/stderr are
+// connected straight through to this process's own, so pagefind's normal
+// progress/error output reaches a build's own console unfiltered.
 // @docsweb
 
 import (

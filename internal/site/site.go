@@ -1,38 +1,36 @@
 // Package site renders a build.Result into a static site: one HTML page
 // (plus a parallel JSON file) per target, one dedicated "outdated uses"
-// page, an index page linking everything together, and a dynamic,
-// client-rendered changelog tab backed by the date-indexed changelog feed.
+// page, an index page linking everything together, a dynamic,
+// client-rendered changelog tab backed by the date-indexed changelog feed,
+// and a "Search" tab that mounts pagefind's own search UI once a separate
+// pagefind indexing pass has run against the generated output.
 package site
 
 // @docsweb
-// @define site v0.17.0
+// @define site v0.18.0
 // @name Site
 // @summary
 // Renders a build.Result into a static site: one HTML page (plus a
 // parallel JSON file) per target version, one dedicated outdated-uses page,
-// an index page linking everything together, and a dynamic "Changelog" tab.
+// an index page linking everything together, a dynamic "Changelog" tab, and
+// a "Search" tab.
 // @uses build@v0.18.0
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// The changelog tab's client-side app is no longer written inline into
-// `changelog.html` as a `<script>` block: its TypeScript source now lives in
-// the sibling `web/` npm package (`web/src/changelog.ts`, typed against the
-// JSON data API's actual shapes), bundled by rolldown (`web/package.json`'s
-// `build` script, `web/rolldown.config.mjs`) as a plain IIFE straight to
-// `internal/site/assets/bundle.js` - named for the *bundle*, not this one
-// entry, since more client-side code is expected to join it there (an ES
-// module output was tried first, but `<script type="module">` fails to
-// load at all under `file://` in Chromium browsers - a separate, stricter
-// restriction than the `fetch`/`XHR` one below - so IIFE it stays). That
-// compiled bundle is embedded into the `docsweb` binary via `go:embed`
-// (`assets.go`'s `bundleJS`) and written unmodified to `<outDir>/bundle.js`
-// by the new `writeBundleScript`, which `changelogTmpl` now references with
-// a plain `<script src="bundle.js">` - building or running `docsweb` itself
-// still needs no Node.js toolchain, only re-running the JS build after
-// editing anything under `web/src/`. The changelog tab's own logic
-// (filters, pagination, and its JSONP-over-`<script src>` JSON loading, see
-// below) is unchanged.
+// Adds a "Search" tab (`search.html`, `writeSearchPage`/`searchTmpl`):
+// a static shell mounting pagefind's own prebuilt search UI
+// (`pagefind-ui.js`/`.css`), which a new pagefind indexing pass -
+// `pagefind.Index`, run from `cmd/docsweb`'s `runBuild` after `Generate`
+// itself returns - writes into `<outDir>/pagefind/` by crawling every page
+// `Generate` already wrote. `Generate` itself gained no dependency on
+// `pagefind`: it only writes this page's shell, referencing paths that
+// pagefind is expected to populate afterwards. To keep only real page
+// content (not the shared nav bar) searchable, every page's body is now
+// wrapped in `<main data-pagefind-body>` in the shared shell template -
+// pagefind indexes only the element carrying that attribute when one is
+// present on a page, so the nav bar itself never shows up as a search
+// result.
 // @doc
 // # Site
 //
@@ -79,6 +77,26 @@ package site
 // mechanism, any other consumer of the JSON API) works identically whether
 // the site is served over HTTP or opened straight off disk as `file://` -
 // see "JSON data API" below.
+//
+// The nav bar's other new link, "Search", opens **the search tab**
+// (`search.html`, `writeSearchPage`/`searchTmpl`) - like the changelog tab,
+// a static shell with no data of `Generate`'s own to pass in. Unlike the
+// changelog tab, it isn't backed by this package's own JSON data API at
+// all: its shell just mounts pagefind's (https://pagefind.app) own
+// prebuilt `PagefindUI` widget against `pagefind-ui.js`/`.css`, files that
+// don't exist yet when `Generate` returns - a separate step, `pagefind.
+// Index` invoked from `cmd/docsweb`'s `runBuild` right after `Generate`
+// finishes, shells out to a real pagefind binary to crawl every page just
+// written and produce `<outDir>/pagefind/` (index shards plus that same
+// runtime JS/CSS) from them. `site` itself never imports `pagefind` -
+// keeping that dependency one-directional and optional (a caller that
+// doesn't want a search index can simply skip that step; `search.html`
+// still renders, its widget just has nothing to mount against) mattered
+// more here than saving one function call. Every page's body - target
+// pages, the outdated/index/changelog pages, and `search.html` itself -
+// is now wrapped in the shared shell's `<main data-pagefind-body>`, so
+// pagefind indexes each page's actual content and never the nav bar
+// repeated on every page.
 //
 // Every page rendered gets an HTML template's default auto-escaping
 // except for the pre-rendered pieces that already came out of
@@ -164,6 +182,7 @@ const (
 	outdatedURL  = "_outdated.html"
 	indexURL     = "index.html"
 	changelogURL = "changelog.html"
+	searchURL    = "search.html"
 	bundleURL    = "bundle.js"
 )
 
@@ -211,6 +230,9 @@ func Generate(result *build.Result, outDir string) error {
 		return err
 	}
 	if err := writeChangelogPage(outDir); err != nil {
+		return err
+	}
+	if err := writeSearchPage(outDir); err != nil {
 		return err
 	}
 	if err := writeBundleScript(outDir); err != nil {
@@ -481,6 +503,19 @@ func writeChangelogPage(outDir string) error {
 	return renderPage(outDir, changelogURL, "Changelog", changelogTmpl, nil)
 }
 
+// -- search page ------------------------------------------------------
+
+// writeSearchPage writes the site-wide "Search" tab: a static shell around
+// pagefind's own prebuilt search UI (searchTmpl, see templates.go). Unlike
+// every other page here, Generate itself has no pagefind dependency and
+// never invokes it - it only leaves this shell referencing
+// "pagefind/pagefind-ui.js"/".css" at the paths a separate pagefind
+// indexing pass (see cmd/docsweb's runBuild and pagefind.Index) is expected
+// to write into outDir after Generate returns.
+func writeSearchPage(outDir string) error {
+	return renderPage(outDir, searchURL, "Search", searchTmpl, nil)
+}
+
 // writeBundleScript writes bundleJS (see assets.go) - the generated site's
 // client-side JS, precompiled from TypeScript as a plain IIFE - to
 // <outDir>/bundle.js, which changelogTmpl's shell references via a plain
@@ -569,6 +604,7 @@ func renderPage(outDir, relURL, title string, tmpl *template.Template, data any)
 		IndexLink:     build.RelLink(relURL, indexURL),
 		OutdatedLink:  build.RelLink(relURL, outdatedURL),
 		ChangelogLink: build.RelLink(relURL, changelogURL),
+		SearchLink:    build.RelLink(relURL, searchURL),
 	}
 	var page bytes.Buffer
 	if err := shellTmpl.ExecuteTemplate(&page, "shell", sd); err != nil {

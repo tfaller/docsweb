@@ -27,12 +27,20 @@ func TestRunBuildEndToEnd(t *testing.T) {
 		"build",
 		"--config", "../../internal/build/testdata/integration/.docsweb.yaml",
 		"--out", out,
+		// "-search=false": these tests exercise site generation, not the
+		// pagefind indexing step, and must stay hermetic - runBuild's
+		// default (-search=true) would otherwise download the real
+		// pagefind binary over the network on every test run. That step
+		// is unit-tested on its own in internal/pagefind.
+		"-search=false",
 	})
 	assert.NoError(t, err)
 	assert.FileExists(t, out+"/index.html")
 	assert.FileExists(t, out+"/_outdated.html")
 	assert.FileExists(t, out+"/integration/app.html")
 	assert.FileExists(t, out+"/lib/helper.html")
+	assert.FileExists(t, out+"/search.html")
+	assert.NoDirExists(t, out+"/pagefind")
 }
 
 // TestRunBuildOwnRepo is docsweb's dogfooding smoke test: the project's own
@@ -45,6 +53,8 @@ func TestRunBuildOwnRepo(t *testing.T) {
 		"build",
 		"--config", "../../.docsweb.yaml",
 		"--out", t.TempDir(),
+		// See TestRunBuildEndToEnd: keep this hermetic, no network access.
+		"-search=false",
 	})
 	assert.NoError(t, err)
 }

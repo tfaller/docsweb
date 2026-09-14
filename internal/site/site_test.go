@@ -3,6 +3,7 @@ package site_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -357,6 +358,53 @@ func TestGenerate_ChangelogPage(t *testing.T) {
 
 	nested := readFile(t, filepath.Join(outDir, "libs", "util", "helper.html"))
 	assert.Contains(t, nested, `href="../../changelog.html"`)
+}
+
+// TestGenerate_SearchPage confirms the "Search" tab is written as its own
+// static page, linked from every other page's shared nav bar at the right
+// relative depth, and mounts pagefind's own prebuilt UI against the paths a
+// separate pagefind indexing pass is expected to populate later (Generate
+// itself never invokes pagefind - see cmd/docsweb's runBuild).
+func TestGenerate_SearchPage(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	page := readFile(t, filepath.Join(outDir, "search.html"))
+	assert.Contains(t, page, "<h1>Search</h1>")
+	assert.Contains(t, page, `<div id="search"></div>`)
+	assert.Contains(t, page, `<script src="pagefind/pagefind-ui.js"></script>`)
+	assert.Contains(t, page, `href="pagefind/pagefind-ui.css"`)
+	assert.Contains(t, page, "new PagefindUI(")
+
+	// Nav link present, at the correct relative depth, on the root-level
+	// index page and on a nested target page alike.
+	index := readFile(t, filepath.Join(outDir, "index.html"))
+	assert.Contains(t, index, `href="search.html"`)
+
+	nested := readFile(t, filepath.Join(outDir, "libs", "util", "helper.html"))
+	assert.Contains(t, nested, `href="../../search.html"`)
+}
+
+// TestGenerate_PageBodyMarkedForPagefind confirms every page's own content
+// is wrapped in <main data-pagefind-body>, so a later pagefind indexing
+// pass only indexes each page's actual content and never the shared nav
+// bar repeated on every page.
+func TestGenerate_PageBodyMarkedForPagefind(t *testing.T) {
+	result := buildResult()
+	outDir := t.TempDir()
+
+	require.NoError(t, site.Generate(result, outDir))
+
+	app := readFile(t, filepath.Join(outDir, "app.html"))
+	assert.Contains(t, app, `<main data-pagefind-body>`)
+
+	navStart := strings.Index(app, `<header class="site-nav">`)
+	navEnd := strings.Index(app, `</header>`)
+	mainStart := strings.Index(app, `<main data-pagefind-body>`)
+	require.True(t, navStart >= 0 && navEnd > navStart && mainStart > navEnd,
+		"expected the nav bar to close before <main data-pagefind-body> opens")
 }
 
 func TestGenerate_NestedScopeDirectoryStructure(t *testing.T) {
