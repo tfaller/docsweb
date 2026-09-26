@@ -7,7 +7,7 @@
 package site
 
 // @docsweb
-// @define site v0.18.0
+// @define site v0.19.0
 // @name Site
 // @summary
 // Renders a build.Result into a static site: one HTML page (plus a
@@ -18,19 +18,15 @@ package site
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// Adds a "Search" tab (`search.html`, `writeSearchPage`/`searchTmpl`):
-// a static shell mounting pagefind's own prebuilt search UI
-// (`pagefind-ui.js`/`.css`), which a new pagefind indexing pass -
-// `pagefind.Index`, run from `cmd/docsweb`'s `runBuild` after `Generate`
-// itself returns - writes into `<outDir>/pagefind/` by crawling every page
-// `Generate` already wrote. `Generate` itself gained no dependency on
-// `pagefind`: it only writes this page's shell, referencing paths that
-// pagefind is expected to populate afterwards. To keep only real page
-// content (not the shared nav bar) searchable, every page's body is now
-// wrapped in `<main data-pagefind-body>` in the shared shell template -
-// pagefind indexes only the element carrying that attribute when one is
-// present on a page, so the nav bar itself never shows up as a search
-// result.
+// The "Search" tab (`searchTmpl`) now mounts pagefind's Component UI -
+// `<pagefind-input>`, `<pagefind-summary>`, and `<pagefind-results>`
+// custom elements loaded from `pagefind-component-ui.js`/`.css` - instead
+// of the deprecated Default UI's `new PagefindUI(...)` against
+// `pagefind-ui.js`/`.css`. Pagefind's CLI still writes both UI bundles
+// into `<outDir>/pagefind/` regardless, so this is a template-only change:
+// no other step of the build (`pagefind.Index`, its invocation from
+// `cmd/docsweb`'s `runBuild`, or the `data-pagefind-body` wrapping that
+// scopes what gets indexed) is affected.
 // @doc
 // # Site
 //
@@ -83,20 +79,22 @@ package site
 // a static shell with no data of `Generate`'s own to pass in. Unlike the
 // changelog tab, it isn't backed by this package's own JSON data API at
 // all: its shell just mounts pagefind's (https://pagefind.app) own
-// prebuilt `PagefindUI` widget against `pagefind-ui.js`/`.css`, files that
-// don't exist yet when `Generate` returns - a separate step, `pagefind.
-// Index` invoked from `cmd/docsweb`'s `runBuild` right after `Generate`
-// finishes, shells out to a real pagefind binary to crawl every page just
-// written and produce `<outDir>/pagefind/` (index shards plus that same
-// runtime JS/CSS) from them. `site` itself never imports `pagefind` -
-// keeping that dependency one-directional and optional (a caller that
-// doesn't want a search index can simply skip that step; `search.html`
-// still renders, its widget just has nothing to mount against) mattered
-// more here than saving one function call. Every page's body - target
-// pages, the outdated/index/changelog pages, and `search.html` itself -
-// is now wrapped in the shared shell's `<main data-pagefind-body>`, so
-// pagefind indexes each page's actual content and never the nav bar
-// repeated on every page.
+// prebuilt Component UI - `<pagefind-input>`, `<pagefind-summary>`, and
+// `<pagefind-results>` custom elements loaded from `pagefind-component-ui.
+// js`/`.css` - against files that don't exist yet when `Generate` returns
+// - a separate step, `pagefind.Index` invoked from `cmd/docsweb`'s
+// `runBuild` right after `Generate` finishes, shells out to a real
+// pagefind binary to crawl every page just written and produce
+// `<outDir>/pagefind/` (index shards plus that same runtime JS/CSS) from
+// them. `site` itself never imports `pagefind` - keeping that dependency
+// one-directional and optional (a caller that doesn't want a search index
+// can simply skip that step; `search.html` still renders, its elements
+// just have nothing to search against) mattered more here than saving one
+// function call. Every page's body - target pages, the
+// outdated/index/changelog pages, and `search.html` itself - is now
+// wrapped in the shared shell's `<main data-pagefind-body>`, so pagefind
+// indexes each page's actual content and never the nav bar repeated on
+// every page.
 //
 // Every page rendered gets an HTML template's default auto-escaping
 // except for the pre-rendered pieces that already came out of
@@ -506,10 +504,10 @@ func writeChangelogPage(outDir string) error {
 // -- search page ------------------------------------------------------
 
 // writeSearchPage writes the site-wide "Search" tab: a static shell around
-// pagefind's own prebuilt search UI (searchTmpl, see templates.go). Unlike
+// pagefind's own prebuilt Component UI (searchTmpl, see templates.go). Unlike
 // every other page here, Generate itself has no pagefind dependency and
 // never invokes it - it only leaves this shell referencing
-// "pagefind/pagefind-ui.js"/".css" at the paths a separate pagefind
+// "pagefind/pagefind-component-ui.js"/".css" at the paths a separate pagefind
 // indexing pass (see cmd/docsweb's runBuild and pagefind.Index) is expected
 // to write into outDir after Generate returns.
 func writeSearchPage(outDir string) error {

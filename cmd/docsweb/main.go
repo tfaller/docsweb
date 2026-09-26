@@ -6,7 +6,7 @@
 package main
 
 // @docsweb
-// @define docsweb v0.20.0
+// @define docsweb v0.21.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
@@ -15,20 +15,15 @@ package main
 // @uses build@v0.18.0
 // @uses check@v0.11.0
 // @uses pagefind@v0.2.0
-// @uses site@v0.18.0
+// @uses site@v0.19.0
 // @audience dev, user
 // @changelog
-// `docsweb build` now also builds a search index for the generated site's
-// new "Search" tab (see [site](@link:site@v0.18.0)'s own changelog):
-// after rendering the site, it `Ensure`s a pinned, checksum-verified
-// [pagefind](@link:pagefind@v0.2.0) binary (downloaded into
-// `docsweb-cache` next to the root config on first use) and runs it
-// against the output directory. A new `-search` flag (default `true`)
-// skips this step when passed `-search=false`, e.g. to build offline or
-// without network access. `@uses` reference bumped to
-// [site](@link:site@v0.18.0)'s current version accordingly, and a new one
-// added for [pagefind](@link:pagefind@v0.2.0); [build](@link:build@v0.18.0)'s
-// and [check](@link:check@v0.11.0)'s are unchanged.
+// `@uses` reference bumped to [site](@link:site@v0.19.0)'s current version:
+// its "Search" tab now mounts pagefind's Component UI instead of the
+// deprecated Default UI (see site's own changelog). No change to
+// `docsweb build`/`check` themselves - [build](@link:build@v0.18.0)'s,
+// [check](@link:check@v0.11.0)'s, and [pagefind](@link:pagefind@v0.2.0)'s
+// references are unchanged.
 // @doc
 // # docsweb
 //

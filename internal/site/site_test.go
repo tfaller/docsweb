@@ -362,9 +362,9 @@ func TestGenerate_ChangelogPage(t *testing.T) {
 
 // TestGenerate_SearchPage confirms the "Search" tab is written as its own
 // static page, linked from every other page's shared nav bar at the right
-// relative depth, and mounts pagefind's own prebuilt UI against the paths a
-// separate pagefind indexing pass is expected to populate later (Generate
-// itself never invokes pagefind - see cmd/docsweb's runBuild).
+// relative depth, and mounts pagefind's own prebuilt Component UI against
+// the paths a separate pagefind indexing pass is expected to populate later
+// (Generate itself never invokes pagefind - see cmd/docsweb's runBuild).
 func TestGenerate_SearchPage(t *testing.T) {
 	result := buildResult()
 	outDir := t.TempDir()
@@ -373,10 +373,10 @@ func TestGenerate_SearchPage(t *testing.T) {
 
 	page := readFile(t, filepath.Join(outDir, "search.html"))
 	assert.Contains(t, page, "<h1>Search</h1>")
-	assert.Contains(t, page, `<div id="search"></div>`)
-	assert.Contains(t, page, `<script src="pagefind/pagefind-ui.js"></script>`)
-	assert.Contains(t, page, `href="pagefind/pagefind-ui.css"`)
-	assert.Contains(t, page, "new PagefindUI(")
+	assert.Contains(t, page, `<script src="pagefind/pagefind-component-ui.js" type="module"></script>`)
+	assert.Contains(t, page, `href="pagefind/pagefind-component-ui.css"`)
+	assert.Contains(t, page, "<pagefind-input>")
+	assert.Contains(t, page, "<pagefind-results>")
 
 	// Nav link present, at the correct relative depth, on the root-level
 	// index page and on a nested target page alike.
