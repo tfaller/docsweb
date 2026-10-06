@@ -1,16 +1,13 @@
 <!--
     @docsweb
-    @define readme v1.2.0
+    @define readme v1.2.1
     @name README
     @summary
     Project overview, the full annotation grammar spec, and the
     configuration reference - dogfooded as a real docsweb target via the
     Markdown frontend described in its own "Markdown files" section below.
     @changelog
-    Documented the generated site's new "Search" tab: `docsweb build`
-    now downloads a pinned, checksum-verified pagefind binary and runs it
-    against the output directory after every page is written, and
-    `--search=false` skips that step. See "Pipeline" below.
+    Remove old "after poc" section
 -->
 
 # docsweb
@@ -256,10 +253,3 @@ out of the documentation. Rules work like `.gitignore`: blank lines and `#` comm
 only, and a pattern is anchored to the config's directory if it starts with `/` or contains a `/`
 anywhere but the end - otherwise it matches at any depth. `*`, `?` and `**` work as usual;
 `[...]` character classes are not supported.
-
-## After POC
-
-The following parts of the design are not part of the initial POC and are planned for afterwards:
-
-- Automatic discovery of nested `.docsweb.yaml` files and the resulting nested-scope/audience inheritance. The POC only resolves scopes explicitly declared in a single root config.
-- Version control integration beyond blame (author attribution) and diffing documentation against a comparison base commit, both implemented - a changelog overview across versions, and browsing historical versions of a target, are not.
