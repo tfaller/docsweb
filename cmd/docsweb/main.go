@@ -1,4 +1,5 @@
-// Command docsweb is the docsweb POC's CLI. "build" runs a full build:
+// Command docsweb is the docsweb POC's CLI. "serve" runs a full build and
+// serves the result over HTTP. "build" runs a full build:
 // collect targets, validate & classify @uses references, resolve
 // @anchor:/@link: destinations, and render the static site (HTML pages
 // plus their JSON data API counterpart). "check" runs the same validation
@@ -6,7 +7,7 @@
 package main
 
 // @docsweb
-// @define docsweb v0.21.0
+// @define docsweb v0.22.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
@@ -18,12 +19,8 @@ package main
 // @uses site@v0.19.0
 // @audience dev, user
 // @changelog
-// `@uses` reference bumped to [site](@link:site@v0.19.0)'s current version:
-// its "Search" tab now mounts pagefind's Component UI instead of the
-// deprecated Default UI (see site's own changelog). No change to
-// `docsweb build`/`check` themselves - [build](@link:build@v0.18.0)'s,
-// [check](@link:check@v0.11.0)'s, and [pagefind](@link:pagefind@v0.2.0)'s
-// references are unchanged.
+// New `docsweb serve` command: builds the site, then serves it over HTTP
+// (see "Serving locally"). `@uses` references are unchanged.
 // @doc
 // # docsweb
 //
@@ -58,6 +55,19 @@ package main
 // to search until a later build with the index step enabled runs against
 // the same output directory.
 //
+// ## Serving locally
+//
+// ```
+// docsweb serve [--config .docsweb.yaml] [--out <dir>] [--addr localhost:8080] [--search]
+// ```
+//
+// `serve` runs the same build as `docsweb build`, then serves the generated
+// site over HTTP until interrupted (Ctrl+C). `--addr` is the listen address
+// (default: `localhost:8080`). `--out` is where the site is generated; left
+// unset, a temporary directory is used and removed on exit. The site is
+// built once at startup - rerun `serve` to pick up documentation changes.
+// `--config` and `--search` behave as for `build`.
+//
 // ## Checking without building
 //
 // ```
@@ -89,10 +99,16 @@ package main
 // @docsweb
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"time"
 
 	"github.com/tfaller/docsweb/internal/build"
 	"github.com/tfaller/docsweb/internal/check"
@@ -134,16 +150,18 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf(`expected a command, e.g. "docsweb build" or "docsweb check"`)
+		return fmt.Errorf(`expected a command, e.g. "docsweb build", "docsweb serve" or "docsweb check"`)
 	}
 
 	switch args[0] {
 	case "build":
 		return runBuild(args[1:])
+	case "serve":
+		return runServe(args[1:])
 	case "check":
 		return runCheck(args[1:])
 	default:
-		return fmt.Errorf(`unknown command %q (only "build" and "check" are supported)`, args[0])
+		return fmt.Errorf(`unknown command %q (only "build", "serve" and "check" are supported)`, args[0])
 	}
 }
 
@@ -156,28 +174,104 @@ func runBuild(args []string) error {
 		return err
 	}
 
-	result, err := build.Run(build.Options{ConfigPath: *configPath})
+	result, err := buildSite(*configPath, *outDir, *search)
 	if err != nil {
 		return fmt.Errorf("build: %w", err)
 	}
 
-	if err := site.Generate(result, *outDir); err != nil {
-		return fmt.Errorf("build: %w", err)
-	}
-
-	if *search {
-		cacheDir := filepath.Join(filepath.Dir(*configPath), cacheDirName)
-		bin, err := pagefind.Ensure(cacheDir, pagefind.Options{Version: pagefindVersion, SHA256: pagefindSHA256})
-		if err != nil {
-			return fmt.Errorf("build: search index: %w", err)
-		}
-		if err := pagefind.Index(bin, *outDir); err != nil {
-			return fmt.Errorf("build: search index: %w", err)
-		}
-	}
-
 	fmt.Printf("docsweb: built %d target(s), %d outdated use(s), into %s\n",
 		len(result.Targets), len(result.Issues), *outDir)
+	return nil
+}
+
+// buildSite runs a full build and writes the generated site (plus, if search
+// is set, its pagefind index) into outDir.
+func buildSite(configPath, outDir string, search bool) (*build.Result, error) {
+	fmt.Println("docsweb: building...")
+
+	result, err := build.Run(build.Options{ConfigPath: configPath})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := site.Generate(result, outDir); err != nil {
+		return nil, err
+	}
+
+	if search {
+		cacheDir := filepath.Join(filepath.Dir(configPath), cacheDirName)
+		bin, err := pagefind.Ensure(cacheDir, pagefind.Options{Version: pagefindVersion, SHA256: pagefindSHA256})
+		if err != nil {
+			return nil, fmt.Errorf("search index: %w", err)
+		}
+		if err := pagefind.Index(bin, outDir); err != nil {
+			return nil, fmt.Errorf("search index: %w", err)
+		}
+	}
+	return result, nil
+}
+
+// runServe builds the site once, then serves it over HTTP until interrupted.
+func runServe(args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	configPath := fs.String("config", ".docsweb.yaml", "path to the root .docsweb.yaml")
+	outDir := fs.String("out", "", "output directory for the generated site (default: a temporary directory, removed on exit)")
+	addr := fs.String("addr", "localhost:8080", "address to listen on")
+	search := fs.Bool("search", true, "build a pagefind search index (see \"build\"; pass -search=false to skip, e.g. offline)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	dir := *outDir
+	if dir == "" {
+		tmp, err := os.MkdirTemp("", "docsweb-serve-")
+		if err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
+		defer os.RemoveAll(tmp)
+		dir = tmp
+	}
+
+	result, err := buildSite(*configPath, dir, *search)
+	if err != nil {
+		return fmt.Errorf("serve: build: %w", err)
+	}
+
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	fmt.Printf("docsweb: built %d target(s), %d outdated use(s)\n", len(result.Targets), len(result.Issues))
+	fmt.Printf("docsweb: serving %s on http://%s (Ctrl+C to stop)\n", dir, ln.Addr())
+	return serveDir(ctx, ln, dir)
+}
+
+// serveDir serves dir over HTTP on ln until ctx is cancelled, then shuts down
+// gracefully.
+func serveDir(ctx context.Context, ln net.Listener, dir string) error {
+	srv := &http.Server{Handler: http.FileServer(http.Dir(dir)), ReadHeaderTimeout: 10 * time.Second}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
 	return nil
 }
 
