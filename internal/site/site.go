@@ -7,7 +7,7 @@
 package site
 
 // @docsweb
-// @define site v0.19.0
+// @define site v0.20.0
 // @name Site
 // @summary
 // Renders a build.Result into a static site: one HTML page (plus a
@@ -18,15 +18,12 @@ package site
 // @uses model@v0.3.0
 // @audience dev
 // @changelog
-// The "Search" tab (`searchTmpl`) now mounts pagefind's Component UI -
-// `<pagefind-input>`, `<pagefind-summary>`, and `<pagefind-results>`
-// custom elements loaded from `pagefind-component-ui.js`/`.css` - instead
-// of the deprecated Default UI's `new PagefindUI(...)` against
-// `pagefind-ui.js`/`.css`. Pagefind's CLI still writes both UI bundles
-// into `<outDir>/pagefind/` regardless, so this is a template-only change:
-// no other step of the build (`pagefind.Index`, its invocation from
-// `cmd/docsweb`'s `runBuild`, or the `data-pagefind-body` wrapping that
-// scopes what gets indexed) is affected.
+// The outdated-uses page no longer embeds the referenced target's
+// current changelog entries. Each row now carries only the referenced
+// target's scope/name and the version in use, and `bundle.js` fills in
+// "what's changed since" on demand: the target's `versions.json`, then the
+// version JSON of every known version newer than the one in use, oldest
+// first - a real old-to-new range instead of just the latest entry.
 // @doc
 // # Site
 //
@@ -47,11 +44,12 @@ package site
 // - **One [outdated-uses page](@link:build@v0.1.0#outdated)**
 //   (`_outdated.html`), grouping every major (breaking) and minor
 //   (informational) outdated `@uses` found during the build. Each row
-//   links to both the referencing and the referenced target, and shows
-//   the referenced target's *current* changelog entries as "what's
-//   changed since" - the POC has no synthesized changelog range yet,
-//   though `internal/history` now has the raw data such a range could be
-//   built from (left for later).
+//   links to both the referencing and the referenced target. Its "what's
+//   changed since" block is not pre-rendered: the page's own script
+//   (`web/src/outdated.ts`, in the shared `bundle.js`) loads the
+//   referenced target's `versions.json` and then the changelog of just
+//   the versions newer than the one the `@uses` was written against,
+//   oldest first, using the same JSONP mechanism as the changelog tab.
 // - **An index page** (`index.html`), grouping every target by scope.
 //
 // Every static page shares the nav bar's "Changelog" link, which opens
@@ -64,7 +62,8 @@ package site
 // opens it: `changelog/index.json`, then only the month shards a chosen
 // (or default) date range needs, then only the individual target version
 // JSON files for the changelog entries actually rendered on screen. Its
-// TypeScript source (`web/src/changelog.ts`) and the date range,
+// TypeScript source (`web/src/changelog.ts`, sharing the JSON loading
+// helpers in `web/src/common.ts` with the outdated page) and the date range,
 // change-level, and scope filters, and the whole-days-only "at least 100,
 // then load more on request" pagination rule, all still live there -
 // `changelogTmpl` in `templates.go` now only renders the static shell and
@@ -393,14 +392,19 @@ func buildTargetPageData(
 // -- outdated uses page ---------------------------------------------------
 
 type issueRow struct {
-	UserLabel      string
-	UserURL        string
-	UseLabel       string
-	UseURL         string
-	UseFound       bool
+	UserLabel string
+	UserURL   string
+	UseLabel  string
+	UseURL    string
+	UseFound  bool
+	// UseScope/UseName address the referenced target for the client-side
+	// "what's changed since" loader (see web/src/outdated.ts), which reads
+	// its versions.json and the changelog of every version newer than
+	// OldVersion on demand, rather than the page embedding any of it.
+	UseScope       string
+	UseName        string
 	OldVersion     string
 	CurrentVersion string
-	Changelog      []changelogItem
 }
 
 type outdatedPageData struct {
@@ -423,15 +427,8 @@ func writeOutdatedPage(outDir string, result *build.Result, byKey map[string]*bu
 		if used, ok := byKey[issue.Use.Key()]; ok {
 			row.UseFound = true
 			row.UseURL = build.RelLink(outdatedURL, build.TargetURL(used.Target.Ref()))
-			// Per PLAN.md assumption #4: no version history in the POC, so
-			// show the referenced target's *current* changelog entries as
-			// "what's changed since" rather than a synthesized range.
-			for _, c := range used.ChangelogHTML {
-				row.Changelog = append(row.Changelog, changelogItem{
-					Audiences: audienceLabelOrWhole(c.Audiences),
-					HTML:      template.HTML(c.HTML), //nolint:gosec // see above
-				})
-			}
+			row.UseScope = used.Target.Scope
+			row.UseName = used.Target.Name
 		}
 
 		switch issue.Kind {

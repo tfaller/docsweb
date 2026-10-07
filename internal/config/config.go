@@ -85,7 +85,7 @@ type Audience struct {
 
 // Scope is one entry from a config's `scope:` map. The map key itself is
 // the scope's full name (dot-joined for nested names, e.g. "parent.child")
-// - see PLAN.md assumption #2. An entry with Git set is a remote scope;
+// - see PLAN.md assumption #16. An entry with Git set is a remote scope;
 // internal/check's scope collection opens it (see internal/vcs's
 // OpenScope) before walking it like any other referenced scope.
 type Scope struct {

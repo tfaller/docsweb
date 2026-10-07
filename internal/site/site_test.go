@@ -295,11 +295,14 @@ func TestGenerate_OutdatedPage(t *testing.T) {
 	assert.Contains(t, outdated, "Breaking (major)")
 	assert.Contains(t, outdated, "Informational (minor)")
 
-	// Assumption #4: current changelog of the referenced target shown as
-	// "what's changed since".
-	assert.Contains(t, outdated, "Rewrote internals.")
-	assert.Contains(t, outdated, "Added a new helper function.")
+	// "What's changed since" is loaded client-side: each row only carries
+	// the data needed to address the referenced target, not its changelog.
 	assert.Contains(t, outdated, "What's changed since")
+	assert.Contains(t, outdated, `class="changed-since" data-scope="libs.util" data-name="helper" data-old="v1.0.0"`)
+	assert.Contains(t, outdated, `class="changed-since" data-scope="" data-name="lib2" data-old="v1.0.0"`)
+	assert.Contains(t, outdated, `<script src="bundle.js"></script>`)
+	assert.NotContains(t, outdated, "Rewrote internals.")
+	assert.NotContains(t, outdated, "Added a new helper function.")
 
 	// Links back to both the user and the referenced target's pages.
 	assert.Contains(t, outdated, `href="app.html"`)

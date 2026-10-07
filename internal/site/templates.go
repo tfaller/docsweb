@@ -88,6 +88,9 @@ var shellTmpl = template.Must(template.New("shell").Parse(`{{define "shell"}}<!d
     border-top: 1px dashed #8886;
   }
   .changed-since > em { font-size: 0.85rem; color: #666; }
+  .changed-since-status { font-size: 0.9rem; color: #666; }
+  .changed-since-version { margin: 0.6rem 0; }
+  .cl-doc-link { display: inline-block; margin-top: 0.4rem; font-size: 0.85rem; }
   code { background: #8882; padding: 0.05rem 0.35rem; border-radius: 0.25rem; }
 </style>
 </head>
@@ -160,8 +163,10 @@ Major version changes are breaking; minor version changes are informational only
   <strong>{{.UserLabel}}</strong> (<a href="{{.UserURL}}">page</a>) uses
   {{if .UseFound}}<a href="{{.UseURL}}">{{.UseLabel}}</a>{{else}}{{.UseLabel}}{{end}}
   at <code>{{.OldVersion}}</code> &mdash; current is <code>{{.CurrentVersion}}</code>.</p>
-  {{if .Changelog}}<div class="changed-since"><em>What's changed since (current changelog entries):</em>
-  {{range .Changelog}}<div class="changelog-entry"><div class="changelog-audience">{{.Audiences}}</div>{{.HTML}}</div>{{end}}
+  {{if .UseFound}}<div class="changed-since" data-scope="{{.UseScope}}" data-name="{{.UseName}}" data-old="{{.OldVersion}}">
+    <em>What's changed since <code>{{.OldVersion}}</code>:</em>
+    <div class="changed-since-status">Loading changelog&hellip;</div>
+    <div class="changed-since-versions"></div>
   </div>{{end}}
 </div>
 {{end}}
@@ -176,13 +181,18 @@ Major version changes are breaking; minor version changes are informational only
   <strong>{{.UserLabel}}</strong> (<a href="{{.UserURL}}">page</a>) uses
   {{if .UseFound}}<a href="{{.UseURL}}">{{.UseLabel}}</a>{{else}}{{.UseLabel}}{{end}}
   at <code>{{.OldVersion}}</code> &mdash; current is <code>{{.CurrentVersion}}</code>.</p>
-  {{if .Changelog}}<div class="changed-since"><em>What's changed since (current changelog entries):</em>
-  {{range .Changelog}}<div class="changelog-entry"><div class="changelog-audience">{{.Audiences}}</div>{{.HTML}}</div>{{end}}
+  {{if .UseFound}}<div class="changed-since" data-scope="{{.UseScope}}" data-name="{{.UseName}}" data-old="{{.OldVersion}}">
+    <em>What's changed since <code>{{.OldVersion}}</code>:</em>
+    <div class="changed-since-status">Loading changelog&hellip;</div>
+    <div class="changed-since-versions"></div>
   </div>{{end}}
 </div>
 {{end}}
 {{else}}<p><em>No informational outdated uses.</em></p>{{end}}
 </section>
+
+<noscript><p><em>JavaScript is required to load the changelog entries between versions.</em></p></noscript>
+<script src="bundle.js"></script>
 `))
 
 var indexTmpl = template.Must(template.New("index").Parse(`

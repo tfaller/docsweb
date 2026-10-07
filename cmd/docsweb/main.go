@@ -7,7 +7,7 @@
 package main
 
 // @docsweb
-// @define docsweb v0.22.0
+// @define docsweb v0.23.0
 // @name docsweb
 // @summary
 // Write technical documentation where it belongs: besides the code.
@@ -16,11 +16,12 @@ package main
 // @uses build@v0.18.0
 // @uses check@v0.11.0
 // @uses pagefind@v0.2.0
-// @uses site@v0.19.0
+// @uses site@v0.20.0
 // @audience dev, user
 // @changelog
-// New `docsweb serve` command: builds the site, then serves it over HTTP
-// (see "Serving locally"). `@uses` references are unchanged.
+// Now depends on `site@v0.20.0`: the outdated-uses page loads the changelog
+// of every version newer than the one a `@uses` references on demand,
+// instead of showing only the latest entry. No command or flag changed.
 // @doc
 // # docsweb
 //

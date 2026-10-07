@@ -3,6 +3,8 @@
 // this script does everything else). See internal/site/site.go's package
 // doc for the JSON data API this loads from.
 
+import { appendChangelogEntries, fetchTargetVersion, loadJSON } from "./common";
+
 /** One target version introduced on a given day - internal/site/json.go's ChangelogVersion. */
 interface ChangelogVersionEntry {
   scope: string;
@@ -26,19 +28,6 @@ interface ChangelogShard {
 /** changelog/index.json's content - json.go's ChangelogIndex: {year: {month: [day, ...]}}. */
 type ChangelogIndex = Record<string, Record<string, number[]>>;
 
-/** One target's @changelog entry, already rendered - json.go's ChangelogEntry. */
-interface ChangelogEntryJSON {
-  audiences?: string[];
-  body: string;
-  html: string;
-}
-
-/** The fields of json.go's Target this tab actually reads. */
-interface TargetVersionJSON {
-  historic: boolean;
-  changelog?: ChangelogEntryJSON[];
-}
-
 /** A day already loaded (fetched + resolved to its shard's entry, if any). */
 interface LoadedDay {
   date: string;
@@ -53,18 +42,12 @@ interface FlatDay {
   key: string;
 }
 
-/** fetchTargetVersion's resolved result: raw JSON plus the HTML page it belongs to. */
-interface FetchedTargetVersion {
-  data: TargetVersionJSON;
-  pageURL: string;
-}
-
-interface Window {
-  docsweb_jsonp: (url: string, data: unknown) => void;
-}
-
-(function () {
-  "use strict";
+export function initChangelog(): void {
+  // Only the Changelog tab's own page has this shell; any other page
+  // loading the shared bundle has nothing to do here.
+  if (!document.getElementById("cl-days")) {
+    return;
+  }
 
   const MIN_CHANGES = 100;
   const LEVEL_RANK: Record<string, number> = { major: 3, minor: 2, patch: 1 };
@@ -75,7 +58,6 @@ interface Window {
     cursor: 0,
     loadedDays: [] as LoadedDay[],
     shardCache: new Map<string, Promise<ChangelogShard>>(),
-    targetCache: new Map<string, Promise<FetchedTargetVersion>>(),
   };
 
   const els = {
@@ -104,55 +86,6 @@ interface Window {
 
   function setStatus(msg: string): void {
     els.status.textContent = msg || "";
-  }
-
-  // loadJSON fetches url's data via a plain, executable <script src> tag
-  // rather than fetch()/XHR: opening a generated site straight off disk
-  // (file://, no HTTP server) is a normal way to browse it, and browsers
-  // block fetch/XHR entirely under file:// ("CORS request not http"),
-  // while a <script src> element is not subject to that restriction - the
-  // same loophole classic JSONP relied on before CORS existed. Every JSON
-  // file this page needs (see internal/site/json.go's writeJSONPFile) has
-  // an executable "<url>.js" sibling that calls the global docsweb_jsonp
-  // callback below with its own url and data, so this works identically
-  // whether the site is opened via file:// or a real HTTP server.
-  interface PendingLoad {
-    promise: Promise<unknown>;
-    resolve: (data: unknown) => void;
-  }
-  const jsonpPending = new Map<string, PendingLoad>();
-
-  window.docsweb_jsonp = function (url: string, data: unknown): void {
-    const entry = jsonpPending.get(url);
-    if (entry) {
-      jsonpPending.delete(url);
-      entry.resolve(data);
-    }
-  };
-
-  function loadJSON<T>(url: string): Promise<T> {
-    const existing = jsonpPending.get(url);
-    if (existing) {
-      return existing.promise as Promise<T>;
-    }
-    const entry = {} as PendingLoad;
-    entry.promise = new Promise(function (resolve, reject) {
-      entry.resolve = resolve;
-      const script = document.createElement("script");
-      script.src = url + ".js";
-      script.async = true;
-      script.addEventListener("error", function () {
-        jsonpPending.delete(url);
-        script.remove();
-        reject(new Error("failed to load " + url));
-      });
-      script.addEventListener("load", function () {
-        script.remove();
-      });
-      document.head.appendChild(script);
-    });
-    jsonpPending.set(url, entry);
-    return entry.promise as Promise<T>;
   }
 
   function levelPasses(kind: string, minLevel: string): boolean {
@@ -288,64 +221,6 @@ interface Window {
     };
   }
 
-  function targetDir(scope: string, name: string): string {
-    return (scope ? scope.split(".").join("/") + "/" : "") + name;
-  }
-
-  // versionJSONURL computes an exact version's own JSON file path directly
-  // from scope+name+version - every version, current or historic alike,
-  // has one at this address (see internal/site/json.go's writeTargetJSON:
-  // the current version's own data is written a second time at this same
-  // address scheme), so no separate lookup is ever needed just to find it.
-  function versionJSONURL(scope: string, name: string, version: string): string {
-    return targetDir(scope, name) + "/" + version + ".json";
-  }
-
-  // fetchTargetVersion loads one changelog entry's own version JSON,
-  // cached by its computed URL since the same target can appear more than
-  // once across the loaded date range. Alongside the raw data, it resolves
-  // pageURL - the HTML page this content actually belongs to: the
-  // version-specific page for a historic version, but the bare canonical
-  // page for the current one (data.historic tells them apart, since the
-  // URL just fetched is the version-specific one either way) - both the
-  // "View full version" link and rewriteEmbeddedLinks (for any relative
-  // @link/@uses href inside the fetched changelog HTML) need this exact
-  // page, not the JSON path that was actually fetched.
-  function fetchTargetVersion(v: ChangelogVersionEntry): Promise<FetchedTargetVersion> {
-    const url = versionJSONURL(v.scope, v.name, v.version);
-    if (!state.targetCache.has(url)) {
-      state.targetCache.set(
-        url,
-        loadJSON<TargetVersionJSON>(url).then(function (data) {
-          const pageURL = data.historic ? url.replace(/\.json$/, ".html") : targetDir(v.scope, v.name) + ".html";
-          return { data: data, pageURL: pageURL };
-        })
-      );
-    }
-    return state.targetCache.get(url)!;
-  }
-
-  // rewriteEmbeddedLinks fixes up <a href> targets inside pre-rendered
-  // changelog HTML fetched from ownPageURL (a target version's own page,
-  // e.g. "docsweb/build.html" or "docsweb/build/v0.1.0.html"). That HTML's
-  // relative links (from @link:/@uses cross-references) were computed
-  // relative to that page's own location and depth - wrong once inserted
-  // into the changelog page, which always lives at the site root. Each
-  // relative href is re-resolved against ownPageURL and rewritten to a
-  // root-relative path, which then works from any page on the site.
-  function rewriteEmbeddedLinks(container: HTMLElement, ownPageURL: string): void {
-    const base = new URL(ownPageURL, document.baseURI);
-    const anchors = container.querySelectorAll("a[href]");
-    for (let i = 0; i < anchors.length; i++) {
-      const raw = anchors[i].getAttribute("href");
-      if (!raw || raw.charAt(0) === "#" || /^[a-z][a-z0-9+.-]*:/i.test(raw)) {
-        continue;
-      }
-      const resolved = new URL(raw, base);
-      anchors[i].setAttribute("href", resolved.pathname + resolved.search + resolved.hash);
-    }
-  }
-
   function renderEntry(v: ChangelogVersionEntry): HTMLElement {
     const row = document.createElement("div");
     row.className = "cl-entry";
@@ -366,29 +241,10 @@ interface Window {
     body.textContent = "Loading…";
     row.appendChild(body);
 
-    fetchTargetVersion(v)
+    fetchTargetVersion(v.scope, v.name, v.version)
       .then(function (result) {
         body.textContent = "";
-        const data = result.data;
-        if (data.changelog && data.changelog.length) {
-          data.changelog.forEach(function (c) {
-            const entry = document.createElement("div");
-            entry.className = "changelog-entry";
-            if (c.audiences && c.audiences.length) {
-              const aud = document.createElement("div");
-              aud.className = "changelog-audience";
-              aud.textContent = c.audiences.join(", ");
-              entry.appendChild(aud);
-            }
-            const html = document.createElement("div");
-            html.innerHTML = c.html;
-            rewriteEmbeddedLinks(html, result.pageURL);
-            entry.appendChild(html);
-            body.appendChild(entry);
-          });
-        } else {
-          body.textContent = "No changelog text for this version.";
-        }
+        appendChangelogEntries(body, result);
         const link = document.createElement("a");
         link.href = result.pageURL;
         link.className = "cl-doc-link";
@@ -459,4 +315,4 @@ interface Window {
       rebuildFlatDays();
       return loadUntilThreshold(MIN_CHANGES);
     });
-})();
+}

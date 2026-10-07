@@ -1,7 +1,96 @@
 (function() {
+	//#region src/common.ts
+	const jsonpPending = /* @__PURE__ */ new Map();
+	window.docsweb_jsonp = function(url, data) {
+		const entry = jsonpPending.get(url);
+		if (entry) {
+			jsonpPending.delete(url);
+			entry.resolve(data);
+		}
+	};
+	function loadJSON(url) {
+		const existing = jsonpPending.get(url);
+		if (existing) return existing.promise;
+		const entry = {};
+		entry.promise = new Promise(function(resolve, reject) {
+			entry.resolve = resolve;
+			const script = document.createElement("script");
+			script.src = url + ".js";
+			script.async = true;
+			script.addEventListener("error", function() {
+				jsonpPending.delete(url);
+				script.remove();
+				reject(/* @__PURE__ */ new Error("failed to load " + url));
+			});
+			script.addEventListener("load", function() {
+				script.remove();
+			});
+			document.head.appendChild(script);
+		});
+		jsonpPending.set(url, entry);
+		return entry.promise;
+	}
+	function targetDir(scope, name) {
+		return (scope ? scope.split(".").join("/") + "/" : "") + name;
+	}
+	function versionJSONURL(scope, name, version) {
+		return targetDir(scope, name) + "/" + version + ".json";
+	}
+	/** versionsJSONURL is the path of a target's versions.json (every known version). */
+	function versionsJSONURL(scope, name) {
+		return targetDir(scope, name) + "/versions.json";
+	}
+	const targetCache = /* @__PURE__ */ new Map();
+	function fetchTargetVersion(scope, name, version) {
+		const url = versionJSONURL(scope, name, version);
+		let p = targetCache.get(url);
+		if (!p) {
+			p = loadJSON(url).then(function(data) {
+				return {
+					data,
+					pageURL: data.historic ? url.replace(/\.json$/, ".html") : targetDir(scope, name) + ".html"
+				};
+			});
+			targetCache.set(url, p);
+		}
+		return p;
+	}
+	function rewriteEmbeddedLinks(container, ownPageURL) {
+		const base = new URL(ownPageURL, document.baseURI);
+		const anchors = container.querySelectorAll("a[href]");
+		for (let i = 0; i < anchors.length; i++) {
+			const raw = anchors[i].getAttribute("href");
+			if (!raw || raw.charAt(0) === "#" || /^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;
+			const resolved = new URL(raw, base);
+			anchors[i].setAttribute("href", resolved.pathname + resolved.search + resolved.hash);
+		}
+	}
+	function appendChangelogEntries(body, result) {
+		const changelog = result.data.changelog;
+		if (!changelog || !changelog.length) {
+			body.appendChild(document.createTextNode("No changelog text for this version."));
+			return;
+		}
+		changelog.forEach(function(c) {
+			const entry = document.createElement("div");
+			entry.className = "changelog-entry";
+			if (c.audiences && c.audiences.length) {
+				const aud = document.createElement("div");
+				aud.className = "changelog-audience";
+				aud.textContent = c.audiences.join(", ");
+				entry.appendChild(aud);
+			}
+			const html = document.createElement("div");
+			html.innerHTML = c.html;
+			rewriteEmbeddedLinks(html, result.pageURL);
+			entry.appendChild(html);
+			body.appendChild(entry);
+		});
+	}
+	//#endregion
 	//#region src/changelog.ts
-	(function() {
-		"use strict";
+	function initChangelog() {
+		if (!document.getElementById("cl-days")) return;
 		const MIN_CHANGES = 100;
 		const LEVEL_RANK = {
 			major: 3,
@@ -13,8 +102,7 @@
 			flatDays: [],
 			cursor: 0,
 			loadedDays: [],
-			shardCache: /* @__PURE__ */ new Map(),
-			targetCache: /* @__PURE__ */ new Map()
+			shardCache: /* @__PURE__ */ new Map()
 		};
 		const els = {
 			from: document.getElementById("cl-from"),
@@ -38,36 +126,6 @@
 		}
 		function setStatus(msg) {
 			els.status.textContent = msg || "";
-		}
-		const jsonpPending = /* @__PURE__ */ new Map();
-		window.docsweb_jsonp = function(url, data) {
-			const entry = jsonpPending.get(url);
-			if (entry) {
-				jsonpPending.delete(url);
-				entry.resolve(data);
-			}
-		};
-		function loadJSON(url) {
-			const existing = jsonpPending.get(url);
-			if (existing) return existing.promise;
-			const entry = {};
-			entry.promise = new Promise(function(resolve, reject) {
-				entry.resolve = resolve;
-				const script = document.createElement("script");
-				script.src = url + ".js";
-				script.async = true;
-				script.addEventListener("error", function() {
-					jsonpPending.delete(url);
-					script.remove();
-					reject(/* @__PURE__ */ new Error("failed to load " + url));
-				});
-				script.addEventListener("load", function() {
-					script.remove();
-				});
-				document.head.appendChild(script);
-			});
-			jsonpPending.set(url, entry);
-			return entry.promise;
 		}
 		function levelPasses(kind, minLevel) {
 			return LEVEL_RANK[kind] >= LEVEL_RANK[minLevel];
@@ -180,32 +238,6 @@
 				}, ms);
 			};
 		}
-		function targetDir(scope, name) {
-			return (scope ? scope.split(".").join("/") + "/" : "") + name;
-		}
-		function versionJSONURL(scope, name, version) {
-			return targetDir(scope, name) + "/" + version + ".json";
-		}
-		function fetchTargetVersion(v) {
-			const url = versionJSONURL(v.scope, v.name, v.version);
-			if (!state.targetCache.has(url)) state.targetCache.set(url, loadJSON(url).then(function(data) {
-				return {
-					data,
-					pageURL: data.historic ? url.replace(/\.json$/, ".html") : targetDir(v.scope, v.name) + ".html"
-				};
-			}));
-			return state.targetCache.get(url);
-		}
-		function rewriteEmbeddedLinks(container, ownPageURL) {
-			const base = new URL(ownPageURL, document.baseURI);
-			const anchors = container.querySelectorAll("a[href]");
-			for (let i = 0; i < anchors.length; i++) {
-				const raw = anchors[i].getAttribute("href");
-				if (!raw || raw.charAt(0) === "#" || /^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;
-				const resolved = new URL(raw, base);
-				anchors[i].setAttribute("href", resolved.pathname + resolved.search + resolved.hash);
-			}
-		}
 		function renderEntry(v) {
 			const row = document.createElement("div");
 			row.className = "cl-entry";
@@ -223,25 +255,9 @@
 			body.className = "cl-entry-body";
 			body.textContent = "Loading…";
 			row.appendChild(body);
-			fetchTargetVersion(v).then(function(result) {
+			fetchTargetVersion(v.scope, v.name, v.version).then(function(result) {
 				body.textContent = "";
-				const data = result.data;
-				if (data.changelog && data.changelog.length) data.changelog.forEach(function(c) {
-					const entry = document.createElement("div");
-					entry.className = "changelog-entry";
-					if (c.audiences && c.audiences.length) {
-						const aud = document.createElement("div");
-						aud.className = "changelog-audience";
-						aud.textContent = c.audiences.join(", ");
-						entry.appendChild(aud);
-					}
-					const html = document.createElement("div");
-					html.innerHTML = c.html;
-					rewriteEmbeddedLinks(html, result.pageURL);
-					entry.appendChild(html);
-					body.appendChild(entry);
-				});
-				else body.textContent = "No changelog text for this version.";
+				appendChangelogEntries(body, result);
 				const link = document.createElement("a");
 				link.href = result.pageURL;
 				link.className = "cl-doc-link";
@@ -299,6 +315,87 @@
 			rebuildFlatDays();
 			return loadUntilThreshold(MIN_CHANGES);
 		});
-	})();
+	}
+	//#endregion
+	//#region src/outdated.ts
+	/** Parses "vMAJOR.MINOR.PATCH" (a pre-release/build suffix is ignored); null if malformed. */
+	function parseVersion(v) {
+		const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(v);
+		return m ? [
+			Number(m[1]),
+			Number(m[2]),
+			Number(m[3])
+		] : null;
+	}
+	function compareVersions(a, b) {
+		for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+		return 0;
+	}
+	/** Every known version strictly newer than old, oldest first. */
+	function versionsNewerThan(versions, old) {
+		const oldParsed = parseVersion(old);
+		if (!oldParsed) return [];
+		const newer = [];
+		versions.forEach(function(link) {
+			const p = parseVersion(link.version);
+			if (p && compareVersions(p, oldParsed) > 0) newer.push({
+				v: link.version,
+				p
+			});
+		});
+		newer.sort(function(a, b) {
+			return compareVersions(a.p, b.p);
+		});
+		return newer.map(function(n) {
+			return n.v;
+		});
+	}
+	function fillRow(container) {
+		const scope = container.dataset.scope || "";
+		const name = container.dataset.name || "";
+		const old = container.dataset.old || "";
+		const status = container.querySelector(".changed-since-status");
+		const list = container.querySelector(".changed-since-versions");
+		loadJSON(versionsJSONURL(scope, name)).then(function(versions) {
+			const newer = versionsNewerThan(versions || [], old);
+			if (!newer.length) {
+				status.textContent = "No newer versions found.";
+				return;
+			}
+			status.textContent = "";
+			newer.forEach(function(version) {
+				const section = document.createElement("div");
+				section.className = "changed-since-version";
+				const head = document.createElement("strong");
+				head.textContent = version;
+				section.appendChild(head);
+				const body = document.createElement("div");
+				body.textContent = "Loading…";
+				section.appendChild(body);
+				list.appendChild(section);
+				fetchTargetVersion(scope, name, version).then(function(result) {
+					body.textContent = "";
+					appendChangelogEntries(body, result);
+					const link = document.createElement("a");
+					link.href = result.pageURL;
+					link.className = "cl-doc-link";
+					link.textContent = "View full version →";
+					body.appendChild(link);
+				}).catch(function(err) {
+					body.textContent = "Failed to load changelog: " + err.message;
+				});
+			});
+		}).catch(function(err) {
+			status.textContent = "Failed to load version list: " + err.message;
+		});
+	}
+	function initOutdated() {
+		const rows = document.querySelectorAll(".changed-since[data-name]");
+		for (let i = 0; i < rows.length; i++) fillRow(rows[i]);
+	}
+	//#endregion
+	//#region src/main.ts
+	initChangelog();
+	initOutdated();
 	//#endregion
 })();
