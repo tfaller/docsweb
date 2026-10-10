@@ -132,6 +132,24 @@ code.here()
 	assert.Equal(t, "Paragraph one.\n\nParagraph two.", targets[0].Doc)
 }
 
+func TestParseSourceDocLineComments(t *testing.T) {
+	for _, prefix := range []string{"///", "//!"} {
+		t.Run(prefix, func(t *testing.T) {
+			src := prefix + " @docsweb\n" +
+				prefix + " @define t v1.0.0\n" +
+				prefix + " @doc\n" +
+				prefix + " Paragraph one.\n" +
+				prefix + "\n" +
+				prefix + " Paragraph two.\n" +
+				"code.here()\n"
+			targets, err := ParseSource(src)
+			require.NoError(t, err)
+			require.Len(t, targets, 1)
+			assert.Equal(t, "Paragraph one.\n\nParagraph two.", targets[0].Doc)
+		})
+	}
+}
+
 func TestParseSourceHashComments(t *testing.T) {
 	src := `
 # @docsweb

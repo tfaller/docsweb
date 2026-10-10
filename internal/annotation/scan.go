@@ -80,7 +80,7 @@ type blockDelim struct{ open, close string }
 // For the POC, comment styles are detected by fixed delimiters rather than
 // by file extension/language (see PLAN.md open question #1).
 var (
-	linePrefixes = []string{"//", "#"}
+	linePrefixes = []string{"///", "//!", "//", "#"}
 	blockDelims  = []blockDelim{{"/*", "*/"}, {"<!--", "-->"}}
 )
 
