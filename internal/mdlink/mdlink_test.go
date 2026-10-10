@@ -179,3 +179,19 @@ func TestRenderDocLenientDegradesBrokenLinkInsteadOfFailing(t *testing.T) {
 	assert.Contains(t, html, "See Text and")
 	assert.Contains(t, html, `<a id="here"></a>anchor`)
 }
+
+func TestRenderTable(t *testing.T) {
+	md := "| A | B |\n|---|---|\n| 1 | 2 |\n"
+	html, err := Render(md)
+	require.NoError(t, err)
+	assert.Contains(t, html, "<table>")
+	assert.Contains(t, html, "<th>A</th>")
+	assert.Contains(t, html, "<td>2</td>")
+}
+
+func TestRenderMalformedTableStaysParagraph(t *testing.T) {
+	// No delimiter row, so this is not a table.
+	html, err := Render("| A | B |\n| 1 | 2 |\n")
+	require.NoError(t, err)
+	assert.NotContains(t, html, "<table>")
+}

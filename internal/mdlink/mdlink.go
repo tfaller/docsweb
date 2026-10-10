@@ -75,6 +75,7 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
 
 	"github.com/tfaller/docsweb/internal/model"
@@ -248,7 +249,10 @@ func preprocess(markdown, defaultScope string, resolver Resolver, strict bool) (
 // <a id="..."> anchors Preprocess injects are emitted as-is rather than
 // stripped. docsweb content comes from source-controlled doc comments, not
 // untrusted input, so this is an acceptable POC tradeoff.
-var renderer = goldmark.New(goldmark.WithRendererOptions(html.WithUnsafe()))
+var renderer = goldmark.New(
+	goldmark.WithExtensions(extension.Table),
+	goldmark.WithRendererOptions(html.WithUnsafe()),
+)
 
 // Render converts already-preprocessed markdown (see Preprocess) to HTML.
 func Render(markdown string) (string, error) {
