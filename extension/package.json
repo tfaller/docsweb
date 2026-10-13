@@ -1,0 +1,60 @@
+{
+  "name": "docsweb-vscode",
+  "displayName": "docsweb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "publisher": "tfaller",
+  "description": "VS Code integration for docsweb: run docsweb commands from the editor.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tfaller/docsweb"
+  },
+  "engines": {
+    "vscode": "^1.141.0"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "docsweb.check",
+        "title": "Check Documentation",
+        "category": "docsweb"
+      }
+    ],
+    "configuration": {
+      "title": "docsweb",
+      "properties": {
+        "docsweb.executablePath": {
+          "type": "string",
+          "default": "docsweb",
+          "description": "Path to the docsweb CLI executable."
+        },
+        "docsweb.configPath": {
+          "type": "string",
+          "default": ".docsweb.yaml",
+          "description": "Path to the root .docsweb.yaml, relative to the workspace folder."
+        },
+        "docsweb.check.base": {
+          "type": "string",
+          "default": "",
+          "description": "Revision to diff documentation against for the version/changelog-bump check (passed as --base). Empty: let docsweb auto-detect (CI merge base, else HEAD)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "rolldown -c rolldown.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.140.0",
+    "rolldown": "^1.2.8",
+    "typescript": "^5.7.3"
+  }
+}
